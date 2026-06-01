@@ -128,11 +128,11 @@ jobs:
               
               var baseColor: UIColor {
                   switch self {
-                  case .walker:  return UIColor(red: 0.22, green: 0.28, blue: 0.24, alpha: 1)
-                  case .brute:   return UIColor(red: 0.42, green: 0.10, blue: 0.10, alpha: 1)
-                  case .runner:  return UIColor(red: 0.48, green: 0.12, blue: 0.42, alpha: 1)
-                  case .cultist: return UIColor(red: 0.18, green: 0.04, blue: 0.28, alpha: 1)
-                  case .boss:    return UIColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)
+                  case .walker:  return UIColor(red: 0.15, green: 0.35, blue: 0.15, alpha: 1)
+                  case .brute:   return UIColor(red: 0.55, green: 0.05, blue: 0.05, alpha: 1)
+                  case .runner:  return UIColor(red: 0.60, green: 0.40, blue: 0.05, alpha: 1)
+                  case .cultist: return UIColor(red: 0.30, green: 0.05, blue: 0.45, alpha: 1)
+                  case .boss:    return UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1)
                   }
               }
           }
@@ -156,20 +156,20 @@ jobs:
                   self.radius = radius
                   super.init(frame: CGRect(x: 0, y: 0, width: radius * 2, height: radius * 2))
                   isUserInteractionEnabled = false
-                  alpha = 0.82
+                  alpha = 0.85
 
                   ring.frame               = bounds
                   ring.layer.cornerRadius  = radius
-                  ring.backgroundColor     = UIColor(white: 0.03, alpha: 0.40)
-                  ring.layer.borderColor   = UIColor(white: 1.0, alpha: 0.35).cgColor
-                  ring.layer.borderWidth   = 2
+                  ring.backgroundColor     = UIColor(white: 0.05, alpha: 0.50)
+                  ring.layer.borderColor   = UIColor(white: 1.0, alpha: 0.45) .cgColor
+                  ring.layer.borderWidth   = 2.5
                   addSubview(ring)
 
-                  let kR                   = radius * 0.38
+                  let kR                   = radius * 0.40
                   knob.frame               = CGRect(x: radius - kR, y: radius - kR, width: kR * 2, height: kR * 2)
                   knob.layer.cornerRadius  = kR
-                  knob.backgroundColor     = UIColor(white: 1.0, alpha: 0.45)
-                  knob.layer.borderColor   = UIColor(white: 1.0, alpha: 0.75).cgColor
+                  knob.backgroundColor     = UIColor(white: 1.0, alpha: 0.60)
+                  knob.layer.borderColor   = UIColor(white: 1.0, alpha: 0.85).cgColor
                   knob.layer.borderWidth   = 2
                   addSubview(knob)
               }
@@ -215,15 +215,14 @@ jobs:
 
               override init(frame: CGRect) {
                   super.init(frame: frame)
-                  isUserInteractionEnabled = false
+                  isUserInteractionEnabled = false 
                   buildUI()
               }
               required init?(coder: NSCoder) { fatalError() }
 
               private func monoFont(_ size: CGFloat, bold: Bool = false) -> UIFont {
                   let name  = bold ? "Courier-Bold" : "Courier"
-                  let found = UIFont(name: name, size: size)
-                  return found ?? (bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size))
+                  return UIFont(name: name, size: size) ?? (bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size))
               }
 
               private func buildUI() {
@@ -289,7 +288,7 @@ jobs:
                   shootBtn.layer.borderWidth      = 1.5
                   shootBtn.setTitle("⚡", for: .normal)
                   shootBtn.titleLabel?.font       = UIFont.systemFont(ofSize: 30)
-                  shootBtn.isUserInteractionEnabled = true
+                  shootBtn.isUserInteractionEnabled = true 
                   addSubview(shootBtn)
               }
 
@@ -326,12 +325,12 @@ jobs:
               }
 
               func showMessage(_ text: String, color: UIColor = .white, duration: TimeInterval = 2.0) {
-                  msgLbl.text      = text.uppercased()
+                  msgLbl.text = text.uppercased()
                   msgLbl.textColor = color
-                  msgLbl.alpha     = 0
+                  msgLbl.alpha = 0
                   msgLbl.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
                   UIView.animate(withDuration: 0.25) {
-                      self.msgLbl.alpha     = 1
+                      self.msgLbl.alpha = 1
                       self.msgLbl.transform = .identity
                   } completion: { _ in
                       UIView.animate(withDuration: 0.4, delay: duration - 0.4) {
@@ -342,7 +341,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── EnemyNode ────────────────────────────────────────────────────────────
+      # ── EnemyNode (3D MONSTER MODEL ENGINE) ──────────────────────────────────
       - name: EnemyNode.swift
         run: |
           cat > SV3D/Sources/EnemyNode.swift << 'SWIFT_EOF'
@@ -354,68 +353,102 @@ jobs:
               var hp:      Float
               var isAlive: Bool = true
               var lastAttackTime: TimeInterval = 0
-              private var bodyMeshNode: SCNNode!
-              private var armorPlate: SCNNode!
+              private var monsterBaseNode: SCNNode!
+              
+              // Spikes, Claws, and Joints for Procedural Monster Model
+              private var leftClaw: SCNNode!
+              private var rightClaw: SCNNode!
+              private var lowerJaw: SCNNode!
+              private var legA: SCNNode!
+              private var legB: SCNNode!
+              
+              private var pulseTime: Float = 0.0
 
               init(kind: EnemyKind) {
                   self.kind = kind
                   self.hp   = kind.health
                   super.init()
-                  buildHighResMesh()
+                  buildProceduralMonsterMesh()
                   buildPhysics()
               }
               required init?(coder: NSCoder) { fatalError() }
 
-              private func buildHighResMesh() {
-                  let baseGeo = SCNCapsule(capRadius: CGFloat(kind.radius), height: CGFloat(kind.height))
-                  baseGeo.radialSegmentCount = 48
-                  baseGeo.heightSegmentCount = 32
-
-                  let pbrMat = SCNMaterial()
-                  pbrMat.lightingModel = .physicallyBased
-                  pbrMat.diffuse.contents = kind.baseColor
-                  pbrMat.metalness.contents = (kind == .boss) ? 0.85 : 0.20
-                  pbrMat.roughness.contents = 0.65
+              private func buildProceduralMonsterMesh() {
+                  monsterBaseNode = SCNNode()
+                  addChildNode(monsterBaseNode)
                   
-                  let modifier = "pragma body\n_geometry.position.xyz += _geometry.normal * (sin(_geometry.position.y * 12.0) * 0.03);"
-                  baseGeo.shaderModifiers = [.geometry: modifier]
-                  baseGeo.materials = [pbrMat]
+                  let scaleF = CGFloat(kind.radius / 0.38)
 
-                  bodyMeshNode = SCNNode(geometry: baseGeo)
-                  bodyMeshNode.position = SCNVector3(0, CGFloat(kind.height * 0.5), 0)
-                  addChildNode(bodyMeshNode)
+                  let organicMat = SCNMaterial()
+                  organicMat.lightingModel = .physicallyBased
+                  organicMat.diffuse.contents = kind.baseColor
+                  organicMat.roughness.contents = 0.85
+                  organicMat.metalness.contents = 0.10
+                  
+                  let boneMat = SCNMaterial()
+                  boneMat.lightingModel = .physicallyBased
+                  boneMat.diffuse.contents = UIColor(white: 0.80, alpha: 1)
+                  boneMat.roughness.contents = 0.30
 
+                  // 1. Torso/Carapace Core
+                  let torsoGeo = SCNSphere(radius: 0.45 * scaleF)
+                  torsoGeo.segmentCount = 36
+                  torsoGeo.materials = [organicMat]
+                  let torsoNode = SCNNode(geometry: torsoGeo)
+                  torsoNode.position = SCNVector3(0, 0.70 * scaleF, 0)
+                  monsterBaseNode.addChildNode(torsoNode)
+
+                  // 2. Head & Mutated Gaping Jaw
+                  let headGeo = SCNBox(width: 0.42 * scaleF, height: 0.38 * scaleF, length: 0.55 * scaleF, chamferRadius: 0.08)
+                  headGeo.materials = [organicMat]
+                  let headNode = SCNNode(geometry: headGeo)
+                  headNode.position = SCNVector3(0, 0.30 * scaleF, -0.35 * scaleF)
+                  torsoNode.addChildNode(headNode)
+
+                  let jawGeo = SCNBox(width: 0.38 * scaleF, height: 0.14 * scaleF, length: 0.48 * scaleF, chamferRadius: 0.04)
+                  jawGeo.materials = [organicMat]
+                  lowerJaw = SCNNode(geometry: jawGeo)
+                  lowerJaw.position = SCNVector3(0, -0.18 * scaleF, -0.05 * scaleF)
+                  headNode.addChildNode(lowerJaw)
+
+                  // 3. Glowing Threat Eyes
                   for side: Float in [-1, 1] {
-                      let eyeGeo = SCNSphere(radius: CGFloat(kind.radius * 0.22))
-                      eyeGeo.segmentCount = 24
+                      let eyeGeo = SCNSphere(radius: 0.07 * scaleF)
                       let eyeMat = SCNMaterial()
                       eyeMat.lightingModel = .constant
-                      eyeMat.diffuse.contents = UIColor(red: 1.0, green: 0.0, blue: 0.1, alpha: 1)
-                      eyeMat.emission.contents = UIColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1)
+                      eyeMat.diffuse.contents = UIColor.red
+                      eyeMat.emission.contents = kind == .boss ? UIColor.purple : UIColor.red
                       eyeGeo.materials = [eyeMat]
-
+                      
                       let eye = SCNNode(geometry: eyeGeo)
-                      eye.position = SCNVector3(side * kind.radius * 0.45, kind.height * 0.84, -(kind.radius * 0.8))
-                      addChildNode(eye)
+                      eye.position = SCNVector3(side * 0.16 * Float(scaleF), 0.12 * Float(scaleF), -0.26 * Float(scaleF))
+                      headNode.addChildNode(eye)
                   }
 
-                  let armorGeo = SCNBox(width: CGFloat(kind.radius * 1.3), height: CGFloat(kind.height * 0.4), length: CGFloat(kind.radius * 1.3), chamferRadius: 0.05)
-                  let armMat = SCNMaterial()
-                  armMat.lightingModel = .physicallyBased
-                  armMat.diffuse.contents = UIColor(white: 0.12, alpha: 1)
-                  armMat.metalness.contents = 0.9
-                  armMat.roughness.contents = 0.15
-                  armorGeo.materials = [armMat]
+                  // 4. Quadrupedal/Insectoid Armature Legs
+                  let legGeo = SCNCylinder(radius: 0.07 * scaleF, height: 0.65 * scaleF)
+                  legGeo.materials = [organicMat]
+                  
+                  legA = SCNNode(geometry: legGeo)
+                  legA.pivot = SCNMatrix4MakeTranslation(0, 0.30 * Float(scaleF), 0)
+                  legA.position = SCNVector3(-0.35 * Float(scaleF), 0.20 * Float(scaleF), 0)
+                  legA.eulerAngles = SCNVector3(0, 0, 0.4)
+                  torsoNode.addChildNode(legA)
 
-                  armorPlate = SCNNode(geometry: armorGeo)
-                  armorPlate.position = SCNVector3(0, kind.height * 0.55, 0)
-                  bodyMeshNode.addChildNode(armorPlate)
+                  legB = SCNNode(geometry: legGeo)
+                  legB.pivot = SCNMatrix4MakeTranslation(0, 0.30 * Float(scaleF), 0)
+                  legB.position = SCNVector3(0.35 * Float(scaleF), 0.20 * Float(scaleF), 0)
+                  legB.eulerAngles = SCNVector3(0, 0, -0.4)
+                  torsoNode.addChildNode(legB)
 
-                  if kind == .boss {
-                      bodyMeshNode.runAction(SCNAction.repeatForever(SCNAction.sequence([
-                          SCNAction.scale(to: 1.04, duration: 0.4),
-                          SCNAction.scale(to: 0.96, duration: 0.4)
-                      ])))
+                  // 5. Hardened Spines / Tail Spikes
+                  for i in 0..<4 {
+                      let spineGeo = SCNCone(topRadius: 0, bottomRadius: 0.06 * scaleF, height: 0.40 * scaleF)
+                      spineGeo.materials = [boneMat]
+                      let spine = SCNNode(geometry: spineGeo)
+                      spine.position = SCNVector3(0, 0.35 * Float(scaleF), (0.25 - Float(i) * 0.20) * Float(scaleF))
+                      spine.eulerAngles = SCNVector3(-0.4 - Float(i) * 0.15, 0, 0)
+                      torsoNode.addChildNode(spine)
                   }
               }
 
@@ -439,17 +472,14 @@ jobs:
               private func flashGlow() {
                   let flashMat = SCNMaterial()
                   flashMat.lightingModel = .constant
-                  flashMat.diffuse.contents = UIColor.red
-                  bodyMeshNode.geometry?.materials = [flashMat]
+                  flashMat.diffuse.contents = UIColor.white
+                  monsterBaseNode.enumerateChildNodes { (node, _) in
+                      node.geometry?.materials = [flashMat]
+                  }
                   
-                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
                       guard let s = self else { return }
-                      let pbrMat = SCNMaterial()
-                      pbrMat.lightingModel = .physicallyBased
-                      pbrMat.diffuse.contents = s.kind.baseColor
-                      pbrMat.metalness.contents = (s.kind == .boss) ? 0.85 : 0.20
-                      pbrMat.roughness.contents = 0.65
-                      s.bodyMeshNode.geometry?.materials = [pbrMat]
+                      s.buildProceduralMonsterMesh()
                   }
               }
 
@@ -457,9 +487,9 @@ jobs:
                   physicsBody = nil
                   runAction(SCNAction.sequence([
                       SCNAction.group([
-                          SCNAction.rotateBy(x: 0.4, y: 0, z: .pi, duration: 0.35),
-                          SCNAction.scale(to: 0.01, duration: 0.35),
-                          SCNAction.fadeOut(duration: 0.35)
+                          SCNAction.rotateBy(x: 0.8, y: 1.5, z: 2.0, duration: 0.40),
+                          SCNAction.scale(to: 0.02, duration: 0.40),
+                          SCNAction.fadeOut(duration: 0.40)
                       ]),
                       SCNAction.removeFromParentNode()
                   ]))
@@ -470,6 +500,14 @@ jobs:
                   let dx   = target.x - position.x
                   let dz   = target.z - position.z
                   let dist = sqrt(dx * dx + dz * dz)
+                  
+                  // Procedural Animation System (Crawling Leg Movements)
+                  pulseTime += dt * kind.speed * 3.5
+                  let wave = sin(pulseTime)
+                  legA.eulerAngles.x = wave * 0.45
+                  legB.eulerAngles.x = -wave * 0.45
+                  lowerJaw.eulerAngles.x = abs(wave) * 0.22
+                  
                   guard dist > kind.attackRange * 0.85 else { return }
                   let spd = kind.speed * dt
                   position.x += dx / dist * spd
@@ -480,13 +518,11 @@ jobs:
                   var diff = targetAngle - currentAngle
                   while diff < -.pi { diff += .pi * 2 }
                   while diff > .pi { diff -= .pi * 2 }
-                  eulerAngles.y += diff * 0.12
+                  eulerAngles.y += diff * 0.15
               }
 
               func distanceTo(_ p: SCNVector3) -> Float {
-                  let dx = position.x - p.x
-                  let dz = position.z - p.z
-                  return sqrt(dx * dx + dz * dz)
+                  return sqrt((position.x - p.x) * (position.x - p.x) + (position.z - p.z) * (position.z - p.z))
               }
 
               func canAttack(at t: TimeInterval) -> Bool {
@@ -495,7 +531,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── GameViewController ───────────────────────────────────────────────────
+      # ── GameViewController (HUMAN MODEL ENGINE + JOYSTICK SEPARATION) ────────
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -507,11 +543,13 @@ jobs:
               private var scnView: SCNView!
               private var scene:   SCNScene!
 
+              // Main Nodes
               private var playerNode: SCNNode!
               private var playerBody: SCNNode!
               private var cameraArm:  SCNNode!
               private var cameraNode: SCNNode!
 
+              // Human Character 3D Model Joints Structure
               private var pelvisNode:   SCNNode!
               private var spineNode:    SCNNode!
               private var chestNode:    SCNNode!
@@ -524,16 +562,17 @@ jobs:
               private var rightArmNode: SCNNode!
               private var gunNode:      SCNNode!
               
+              // Animation parameters
               private var animationTime: Float = 0.0
               private var targetBodyAngle: Float = 0.0
               private var currentBodyAngle: Float = 0.0
-
               private var currentLeftThighX: Float = 0.0
               private var currentRightThighX: Float = 0.0
               private var currentLeftShinX: Float = 0.0
               private var currentRightShinX: Float = 0.0
               private var currentPelvisY: Float = 0.95
 
+              // Game variables
               private var health      : Float        = 100
               private var maxHealth   : Float        = 100
               private var ammo        : Int          = 30
@@ -550,9 +589,9 @@ jobs:
               private var enemies     : [EnemyNode]  = []
               private var bullets     : [SCNNode]    = []
               private var lastShotTime: TimeInterval = 0
-              
               private var shakeIntensity: Float = 0.0
 
+              // Separate UI Interactive Elements (Crucial fix for touch screening)
               private var moveJoystick: JoystickView!
               private var aimJoystick:  JoystickView!
               private var hudView:      HUDOverlay!
@@ -568,11 +607,14 @@ jobs:
                   super.viewDidLoad()
                   setupScene()
                   buildWorld()
-                  spawnRealisticPlayer()
+                  spawnRealisticHumanPlayer()
                   setupCamera()
                   setupAdvancedLighting()
-                  setupHUD()
+                  
+                  // Setup Hierarchy Ordering: Joysticks MUST be added AFTER/ABOVE the interactive containers
                   setupJoysticks()
+                  setupHUD()
+                  
                   waveTimer = 3.0
               }
 
@@ -606,9 +648,9 @@ jobs:
                   let floorGeo = SCNFloor()
                   let mat = SCNMaterial()
                   mat.lightingModel = .physicallyBased
-                  mat.diffuse.contents = UIColor(white: 0.08, alpha: 1)
-                  mat.roughness.contents = 0.45
-                  mat.metalness.contents = 0.10
+                  mat.diffuse.contents = UIColor(white: 0.06, alpha: 1)
+                  mat.roughness.contents = 0.50
+                  mat.metalness.contents = 0.15
                   floorGeo.materials = [mat]
                   
                   let node = SCNNode(geometry: floorGeo)
@@ -630,8 +672,8 @@ jobs:
                       let geo = SCNBox(width: CGFloat(w), height: CGFloat(hh), length: CGFloat(d), chamferRadius: 0.1)
                       let mat = SCNMaterial()
                       mat.lightingModel = .physicallyBased
-                      mat.diffuse.contents = UIColor(white: 0.05, alpha: 1)
-                      mat.roughness.contents = 0.8
+                      mat.diffuse.contents = UIColor(white: 0.04, alpha: 1)
+                      mat.roughness.contents = 0.85
                       geo.materials = [mat]
                       let node = SCNNode(geometry: geo)
                       node.position = SCNVector3(x, y, z)
@@ -653,9 +695,9 @@ jobs:
                       
                       let mat = SCNMaterial()
                       mat.lightingModel = .physicallyBased
-                      mat.diffuse.contents = UIColor(white: 0.10, alpha: 1)
-                      mat.roughness.contents = 0.35
-                      mat.metalness.contents = 0.40
+                      mat.diffuse.contents = UIColor(white: 0.08, alpha: 1)
+                      mat.roughness.contents = 0.40
+                      mat.metalness.contents = 0.30
                       geo.materials = [mat]
                       
                       let node = SCNNode(geometry: geo)
@@ -666,142 +708,131 @@ jobs:
                   }
               }
 
-              private func spawnRealisticPlayer() {
+              private func spawnRealisticHumanPlayer() {
                   playerNode = SCNNode()
                   playerNode.position = SCNVector3(0, 0, 0)
 
                   playerBody = SCNNode()
                   playerNode.addChildNode(playerBody)
 
-                  let carbonSuit = SCNMaterial()
-                  carbonSuit.lightingModel = .physicallyBased
-                  carbonSuit.diffuse.contents = UIColor(white: 0.11, alpha: 1)
-                  carbonSuit.roughness.contents = 0.55
-                  carbonSuit.metalness.contents = 0.25
+                  // Human Mesh PBR Fabrics & Skin Materials
+                  let tacticalSuit = SCNMaterial()
+                  tacticalSuit.lightingModel = .physicallyBased
+                  tacticalSuit.diffuse.contents = UIColor(white: 0.14, alpha: 1) // Dark urban tactical grey
+                  tacticalSuit.roughness.contents = 0.65
+                  tacticalSuit.metalness.contents = 0.10
 
-                  let titaniumPlates = SCNMaterial()
-                  titaniumPlates.lightingModel = .physicallyBased
-                  titaniumPlates.diffuse.contents = UIColor(white: 0.32, alpha: 1)
-                  titaniumPlates.metalness.contents = 0.92
-                  titaniumPlates.roughness.contents = 0.22
+                  let armorPlates = SCNMaterial()
+                  armorPlates.lightingModel = .physicallyBased
+                  armorPlates.diffuse.contents = UIColor(white: 0.28, alpha: 1)
+                  armorPlates.metalness.contents = 0.85
+                  armorPlates.roughness.contents = 0.25
 
-                  let neonVisor = SCNMaterial()
-                  neonVisor.lightingModel = .constant
-                  neonVisor.diffuse.contents = UIColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 1)
-                  neonVisor.emission.contents = UIColor(red: 0.0, green: 0.60, blue: 0.90, alpha: 1)
+                  let skinMaterial = SCNMaterial()
+                  skinMaterial.lightingModel = .physicallyBased
+                  skinMaterial.diffuse.contents = UIColor(red: 0.82, green: 0.62, blue: 0.51, alpha: 1) // High-res flesh tone
+                  skinMaterial.roughness.contents = 0.50
 
-                  let energyCoreMat = SCNMaterial()
-                  energyCoreMat.lightingModel = .constant
-                  energyCoreMat.diffuse.contents = UIColor.orange
-                  energyCoreMat.emission.contents = UIColor.orange
+                  let visorMat = SCNMaterial()
+                  visorMat.lightingModel = .constant
+                  visorMat.diffuse.contents = UIColor(red: 0.0, green: 0.9, blue: 0.5, alpha: 1)
 
-                  let pelvisGeo = SCNBox(width: 0.36, height: 0.16, length: 0.28, chamferRadius: 0.05)
-                  pelvisGeo.materials = [titaniumPlates]
+                  // 1. Pelvis Base Joint
+                  let pelvisGeo = SCNBox(width: 0.34, height: 0.15, length: 0.26, chamferRadius: 0.04)
+                  pelvisGeo.materials = [tacticalSuit]
                   pelvisNode = SCNNode(geometry: pelvisGeo)
                   pelvisNode.position = SCNVector3(0, 0.95, 0)
                   playerBody.addChildNode(pelvisNode)
 
-                  let spineGeo = SCNCylinder(radius: 0.08, height: 0.35)
-                  spineGeo.materials = [carbonSuit]
+                  // 2. Spine Column
+                  let spineGeo = SCNCylinder(radius: 0.07, height: 0.32)
+                  spineGeo.materials = [tacticalSuit]
                   spineNode = SCNNode(geometry: spineGeo)
-                  spineNode.position = SCNVector3(0, 0.22, 0)
+                  spineNode.position = SCNVector3(0, 0.20, 0)
                   pelvisNode.addChildNode(spineNode)
 
-                  let chestGeo = SCNBox(width: 0.52, height: 0.42, length: 0.34, chamferRadius: 0.08)
-                  chestGeo.materials = [titaniumPlates]
+                  // 3. Human Ribcage / Chest Armor
+                  let chestGeo = SCNBox(width: 0.48, height: 0.40, length: 0.32, chamferRadius: 0.06)
+                  chestGeo.materials = [armorPlates]
                   chestNode = SCNNode(geometry: chestGeo)
                   chestNode.position = SCNVector3(0, 0.18, 0)
                   spineNode.addChildNode(chestNode)
 
-                  let coreGeo = SCNCylinder(radius: 0.05, height: 0.04)
-                  coreGeo.materials = [energyCoreMat]
-                  let coreNode = SCNNode(geometry: coreGeo)
-                  coreNode.position = SCNVector3(0, 0.05, -0.18)
-                  coreNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
-                  chestNode.addChildNode(coreNode)
-
-                  let headGeo = SCNBox(width: 0.24, height: 0.25, length: 0.24, chamferRadius: 0.04)
-                  headGeo.materials = [carbonSuit]
+                  // 4. Detailed Human Head Node
+                  let headGeo = SCNSphere(radius: 0.13)
+                  headGeo.segmentCount = 32
+                  headGeo.materials = [skinMaterial]
                   headNode = SCNNode(geometry: headGeo)
-                  headNode.position = SCNVector3(0, 0.34, 0)
+                  headNode.position = SCNVector3(0, 0.32, 0)
                   chestNode.addChildNode(headNode)
+                  
+                  // Tactical Combat Helmet overlay
+                  let helmetGeo = SCNCapsule(capRadius: 0.14, height: 0.16)
+                  helmetGeo.materials = [armorPlates]
+                  let helmet = SCNNode(geometry: helmetGeo)
+                  helmet.position = SCNVector3(0, 0.03, 0)
+                  headNode.addChildNode(helmet)
 
-                  let visorGeo = SCNBox(width: 0.25, height: 0.07, length: 0.06, chamferRadius: 0.01)
-                  visorGeo.materials = [neonVisor]
+                  let visorGeo = SCNBox(width: 0.18, height: 0.05, length: 0.04, chamferRadius: 0.01)
+                  visorGeo.materials = [visorMat]
                   let visor = SCNNode(geometry: visorGeo)
-                  visor.position = SCNVector3(0, 0.04, -0.11)
+                  visor.position = SCNVector3(0, 0.02, -0.12)
                   headNode.addChildNode(visor)
 
-                  let thighGeo = SCNCylinder(radius: 0.09, height: 0.44)
-                  thighGeo.materials = [carbonSuit]
-                  let shinGeo = SCNCylinder(radius: 0.07, height: 0.46)
-                  shinGeo.materials = [titaniumPlates]
+                  // 5. Human Lower Extremities (Legs + Shins)
+                  let thighGeo = SCNCylinder(radius: 0.08, height: 0.42)
+                  thighGeo.materials = [tacticalSuit]
+                  let shinGeo = SCNCylinder(radius: 0.06, height: 0.44)
+                  shinGeo.materials = [tacticalSuit]
 
                   leftThigh = SCNNode(geometry: thighGeo)
-                  leftThigh.pivot = SCNMatrix4MakeTranslation(0, 0.22, 0)
-                  leftThigh.position = SCNVector3(-0.16, -0.10, 0)
+                  leftThigh.pivot = SCNMatrix4MakeTranslation(0, 0.21, 0)
+                  leftThigh.position = SCNVector3(-0.14, -0.08, 0)
                   pelvisNode.addChildNode(leftThigh)
 
                   leftShin = SCNNode(geometry: shinGeo)
-                  leftShin.pivot = SCNMatrix4MakeTranslation(0, 0.23, 0)
-                  leftShin.position = SCNVector3(0, -0.42, 0)
+                  leftShin.pivot = SCNMatrix4MakeTranslation(0, 0.22, 0)
+                  leftShin.position = SCNVector3(0, -0.40, 0)
                   leftThigh.addChildNode(leftShin)
 
                   rightThigh = SCNNode(geometry: thighGeo)
-                  rightThigh.pivot = SCNMatrix4MakeTranslation(0, 0.22, 0)
-                  rightThigh.position = SCNVector3(0.16, -0.10, 0)
+                  rightThigh.pivot = SCNMatrix4MakeTranslation(0, 0.21, 0)
+                  rightThigh.position = SCNVector3(0.14, -0.08, 0)
                   pelvisNode.addChildNode(rightThigh)
 
                   rightShin = SCNNode(geometry: shinGeo)
-                  rightShin.pivot = SCNMatrix4MakeTranslation(0, 0.23, 0)
-                  rightShin.position = SCNVector3(0, -0.42, 0)
+                  rightShin.pivot = SCNMatrix4MakeTranslation(0, 0.22, 0)
+                  rightShin.position = SCNVector3(0, -0.40, 0)
                   rightThigh.addChildNode(rightShin)
 
-                  let armGeo = SCNCylinder(radius: 0.07, height: 0.50)
-                  armGeo.materials = [carbonSuit]
-
-                  let padGeo = SCNBox(width: 0.16, height: 0.14, length: 0.16, chamferRadius: 0.03)
-                  padGeo.materials = [titaniumPlates]
+                  // 6. Human Arms & Tactical Weapon Mounting
+                  let armGeo = SCNCylinder(radius: 0.06, height: 0.46)
+                  armGeo.materials = [tacticalSuit]
 
                   leftArmNode = SCNNode(geometry: armGeo)
-                  leftArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.25, 0)
-                  leftArmNode.position = SCNVector3(-0.31, 0.16, 0)
+                  leftArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.23, 0)
+                  leftArmNode.position = SCNVector3(-0.28, 0.15, 0)
                   chestNode.addChildNode(leftArmNode)
 
-                  let leftPad = SCNNode(geometry: padGeo)
-                  leftPad.position = SCNVector3(-0.04, 0.22, 0)
-                  leftArmNode.addChildNode(leftPad)
-
                   rightArmNode = SCNNode(geometry: armGeo)
-                  rightArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.25, 0)
-                  rightArmNode.position = SCNVector3(0.31, 0.16, 0)
+                  rightArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.23, 0)
+                  rightArmNode.position = SCNVector3(0.28, 0.15, 0)
                   chestNode.addChildNode(rightArmNode)
 
-                  let rightPad = SCNNode(geometry: padGeo)
-                  rightPad.position = SCNVector3(0.04, 0.22, 0)
-                  rightArmNode.addChildNode(rightPad)
-
-                  let gunGeo = SCNBox(width: 0.07, height: 0.11, length: 0.74, chamferRadius: 0.02)
+                  let gunGeo = SCNBox(width: 0.06, height: 0.10, length: 0.70, chamferRadius: 0.02)
                   let gunMat = SCNMaterial()
                   gunMat.lightingModel = .physicallyBased
-                  gunMat.diffuse.contents = UIColor(white: 0.03, alpha: 1)
-                  gunMat.metalness.contents = 0.98
-                  gunMat.roughness.contents = 0.08
+                  gunMat.diffuse.contents = UIColor(white: 0.05, alpha: 1)
+                  gunMat.metalness.contents = 0.95
+                  gunMat.roughness.contents = 0.15
                   gunGeo.materials = [gunMat]
                   
                   gunNode = SCNNode(geometry: gunGeo)
-                  gunNode.position = SCNVector3(0, -0.26, -0.26)
+                  gunNode.position = SCNVector3(0, -0.24, -0.24)
                   gunNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
                   rightArmNode.addChildNode(gunNode)
 
-                  let laserGeo = SCNCylinder(radius: 0.015, height: 0.15)
-                  laserGeo.materials = [neonVisor]
-                  let laserNode = SCNNode(geometry: laserGeo)
-                  laserNode.position = SCNVector3(0, -0.05, -0.25)
-                  laserNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
-                  gunNode.addChildNode(laserNode)
-
-                  let shape = SCNPhysicsShape(geometry: SCNCapsule(capRadius: 0.44, height: 1.80), options: nil)
+                  let shape = SCNPhysicsShape(geometry: SCNCapsule(capRadius: 0.42, height: 1.75), options: nil)
                   let body  = SCNPhysicsBody(type: .kinematic, shape: shape)
                   body.categoryBitMask    = PhysicsMask.player
                   body.contactTestBitMask = PhysicsMask.enemy | PhysicsMask.item
@@ -832,10 +863,10 @@ jobs:
                   
                   let keyLight = SCNLight()
                   keyLight.type = .directional
-                  keyLight.color = UIColor(red: 0.60, green: 0.65, blue: 0.85, alpha: 1)
-                  keyLight.intensity = 1200
+                  keyLight.color = UIColor(red: 0.65, green: 0.70, blue: 0.90, alpha: 1)
+                  keyLight.intensity = 1300
                   keyLight.castsShadow = true
-                  keyLight.shadowRadius = 4.0
+                  keyLight.shadowRadius = 4.5
                   keyLight.shadowMapSize = CGSize(width: 4096, height: 4096)
                   
                   let keyNode = SCNNode()
@@ -845,18 +876,33 @@ jobs:
 
                   let fillLight = SCNLight()
                   fillLight.type = .ambient
-                  fillLight.color = UIColor(red: 0.08, green: 0.08, blue: 0.15, alpha: 1)
-                  fillLight.intensity = 400
+                  fillLight.color = UIColor(red: 0.10, green: 0.10, blue: 0.18, alpha: 1)
+                  fillLight.intensity = 450
                   let fillNode = SCNNode()
                   fillNode.light = fillLight
                   scene.rootNode.addChildNode(fillNode)
               }
 
+              private func setupJoysticks() {
+                  let jR = view.bounds.height * 0.13
+                  
+                  moveJoystick = JoystickView(radius: jR)
+                  moveJoystick.center = CGPoint(x: jR + 40, y: view.bounds.height - jR - 40)
+                  view.addSubview(moveJoystick)
+
+                  aimJoystick = JoystickView(radius: jR)
+                  aimJoystick.center = CGPoint(x: view.bounds.width - jR - 160, y: view.bounds.height - jR - 40)
+                  view.addSubview(aimJoystick)
+              }
+
               private func setupHUD() {
                   hudView = HUDOverlay(frame: view.bounds)
                   hudView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                  hudView.isUserInteractionEnabled = true
+                  
+                  // Crucial fix: Let events pass to child components under overlay tracking bounds
+                  hudView.isUserInteractionEnabled = false 
                   view.addSubview(hudView)
+                  
                   hudView.shootBtn.addTarget(self, action: #selector(shootDown), for: .touchDown)
                   hudView.shootBtn.addTarget(self, action: #selector(shootUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
               }
@@ -864,20 +910,14 @@ jobs:
               @objc private func shootDown() { isShooting = true  }
               @objc private func shootUp()   { isShooting = false }
 
-              private func setupJoysticks() {
-                  let jR = view.bounds.height * 0.13
-                  moveJoystick = JoystickView(radius: jR)
-                  moveJoystick.center = CGPoint(x: jR + 35, y: view.bounds.height - jR - 35)
-                  view.addSubview(moveJoystick)
-
-                  aimJoystick = JoystickView(radius: jR)
-                  aimJoystick.center = CGPoint(x: view.bounds.width - jR - 150, y: view.bounds.height - jR - 35)
-                  view.addSubview(aimJoystick)
-              }
-
               override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
                       let pt = t.location(in: view)
+                      
+                      // Check shoot button first since it overlapping layout frames
+                      let convertedPt = hudView.shootBtn.convert(pt, from: view)
+                      if hudView.shootBtn.point(inside: convertedPt, with: event) { continue }
+
                       if moveJoystick.frame.contains(pt) && moveJoystick.trackingTouch == nil {
                           moveJoystick.trackingTouch = t
                       } else if aimJoystick.frame.contains(pt) && aimJoystick.trackingTouch == nil {
@@ -895,7 +935,7 @@ jobs:
                           moveJoystick.moveTouch(t, in: view)
                       } else if t === aimJoystick.trackingTouch {
                           aimJoystick.moveTouch(t, in: view)
-                          cameraYaw -= Float(pt.x - lastAimPt.x) * 0.0060
+                          cameraYaw -= Float(pt.x - lastAimPt.x) * 0.0065
                           lastAimPt  = pt
                       }
                   }
@@ -917,7 +957,7 @@ jobs:
                   let dt = lastTime == 0 ? 0 : Float(min(time - lastTime, 0.05))
                   lastTime = time
 
-                  moveAndAnimatePlayer(dt: dt)
+                  moveAndAnimateHumanCharacter(dt: dt)
                   
                   if shakeIntensity > 0.01 {
                       let sx = Float.random(in: -1...1) * shakeIntensity
@@ -940,21 +980,20 @@ jobs:
                   }
               }
 
-              private func moveAndAnimatePlayer(dt: Float) {
+              private func moveAndAnimateHumanCharacter(dt: Float) {
                   let mv  = moveJoystick.velocity
                   let len = sqrt(mv.x * mv.x + mv.y * mv.y)
-                  let lerpSpeed: Float = dt * 11.5
+                  let lerpSpeed: Float = dt * 12.0
 
                   guard len > 0.1 else {
-                      animationTime += dt * 2.2
-                      let breatheFactor = sin(animationTime)
+                      animationTime += dt * 2.5
+                      let breathe = sin(animationTime)
                       
-                      let targetY = 0.95 + (breatheFactor * 0.015)
-                      currentPelvisY += (targetY - currentPelvisY) * lerpSpeed
+                      currentPelvisY += ((0.95 + breathe * 0.012) - currentPelvisY) * lerpSpeed
                       pelvisNode.position.y = currentPelvisY
 
-                      chestNode.eulerAngles.x = breatheFactor * 0.012
-                      headNode.eulerAngles.x = -breatheFactor * 0.008
+                      chestNode.eulerAngles.x = breathe * 0.010
+                      headNode.eulerAngles.x = -breathe * 0.005
                       
                       currentLeftThighX += (0.0 - currentLeftThighX) * lerpSpeed
                       currentRightThighX += (0.0 - currentRightThighX) * lerpSpeed
@@ -967,17 +1006,15 @@ jobs:
                       rightShin.eulerAngles.x = currentRightShinX
 
                       leftArmNode.eulerAngles.x = 0; leftArmNode.eulerAngles.z = 0.05
-                      rightArmNode.eulerAngles.x = -0.12; rightArmNode.eulerAngles.y = -0.05
+                      rightArmNode.eulerAngles.x = -0.15; rightArmNode.eulerAngles.y = -0.05
                       
-                      let diff = targetBodyAngle - currentBodyAngle
-                      currentBodyAngle += diff * lerpSpeed
+                      currentBodyAngle += (targetBodyAngle - currentBodyAngle) * lerpSpeed
                       playerBody.eulerAngles.y = currentBodyAngle
                       return
                   }
 
-                  let highVelocity = len > 0.72
-                  let travelSpeed: Float = highVelocity ? 8.5 : 4.0
-                  let matrixFactor: Float = highVelocity ? 2.6 : 1.4
+                  let travelSpeed: Float = len > 0.75 ? 8.5 : 4.2
+                  let matrixFactor: Float = len > 0.75 ? 2.8 : 1.5
 
                   let fwd = SIMD3<Float>(-sin(cameraYaw), 0, -cos(cameraYaw))
                   let rgt = SIMD3<Float>( cos(cameraYaw), 0, -sin(cameraYaw))
@@ -987,7 +1024,7 @@ jobs:
 
                   let deltaPos = dir * travelSpeed * dt
                   var finalPos = playerNode.simdPosition + deltaPos
-                  let boundary = mapHalf - 2.0
+                  let boundary = mapHalf - 2.5
                   finalPos.x = max(-boundary, min(boundary, finalPos.x))
                   finalPos.z = max(-boundary, min(boundary, finalPos.z))
                   playerNode.simdPosition = finalPos
@@ -999,33 +1036,26 @@ jobs:
                   currentBodyAngle += angleDiff * lerpSpeed
                   playerBody.eulerAngles.y = currentBodyAngle
 
-                  animationTime += dt * matrixFactor * 14.5
-                  let primaryOscillation = sin(animationTime)
-                  let secondaryOscillation = cos(animationTime)
+                  animationTime += dt * matrixFactor * 14.0
+                  let swingA = sin(animationTime)
+                  let swingB = cos(animationTime)
 
-                  let targetY = 0.95 + (abs(primaryOscillation) * 0.04)
-                  currentPelvisY += (targetY - currentPelvisY) * lerpSpeed
+                  currentPelvisY += ((0.95 + abs(swingA) * 0.035) - currentPelvisY) * lerpSpeed
                   pelvisNode.position.y = currentPelvisY
-                  
-                  chestNode.eulerAngles.y = primaryOscillation * 0.05
+                  chestNode.eulerAngles.y = swingA * 0.06
 
-                  let targetLT = primaryOscillation * 0.62
-                  let targetRT = -primaryOscillation * 0.62
-                  let targetLS = max(0, -secondaryOscillation * 0.55)
-                  let targetRS = max(0, secondaryOscillation * 0.55)
-
-                  currentLeftThighX += (targetLT - currentLeftThighX) * lerpSpeed
-                  currentRightThighX += (targetRT - currentRightThighX) * lerpSpeed
-                  currentLeftShinX += (targetLS - currentLeftShinX) * lerpSpeed
-                  currentRightShinX += (targetRS - currentRightShinX) * lerpSpeed
+                  currentLeftThighX += ((swingA * 0.65) - currentLeftThighX) * lerpSpeed
+                  currentRightThighX += ((-swingA * 0.65) - currentRightThighX) * lerpSpeed
+                  currentLeftShinX += ((max(0, -swingB * 0.50)) - currentLeftShinX) * lerpSpeed
+                  currentRightShinX += ((max(0, swingB * 0.50)) - currentRightShinX) * lerpSpeed
 
                   leftThigh.eulerAngles.x = currentLeftThighX
                   rightThigh.eulerAngles.x = currentRightThighX
                   leftShin.eulerAngles.x = currentLeftShinX
                   rightShin.eulerAngles.x = currentRightShinX
 
-                  leftArmNode.eulerAngles.x = -primaryOscillation * 0.50
-                  rightArmNode.eulerAngles.x = (primaryOscillation * 0.08) - 0.28
+                  leftArmNode.eulerAngles.x = -swingA * 0.55
+                  rightArmNode.eulerAngles.x = (swingA * 0.10) - 0.30
               }
 
               private func tryShoot(time: TimeInterval) {
@@ -1233,7 +1263,7 @@ jobs:
           </plist>
           PLIST_EOF
 
-      # ── project.yml (FIXED TARGET PLISt CONFIGURATION) ────────────────────────
+      # ── project.yml ───────────────────────────────────────────────────────────
       - name: project.yml
         run: |
           cat > SV3D/project.yml << 'YAML_EOF'
@@ -1329,7 +1359,7 @@ jobs:
               f.write(png(1024, 1024))
           PYEOF
 
-      # ── XcodeGen ─────────────────────────────────────────────────────────────
+      # ── XcodeGen Project Generation ──────────────────────────────────────────
       - name: Generate Xcode Project
         working-directory: SV3D
         run: xcodegen generate --spec project.yml --project .
@@ -1366,6 +1396,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ShadowVillage3D-HighRes-Smooth
+          name: ShadowVillage3D-HumanAndMonsters
           path: ShadowVillage3D.ipa
           retention-days: 14
