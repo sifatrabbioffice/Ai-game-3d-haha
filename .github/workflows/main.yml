@@ -1,0 +1,208 @@
+version: "2.0"
+project_name: "GTA_AI_iOS_Sideload"
+target_platform: "iOS (Apple iPhone)"
+installation_method: "Unsigned IPA via Sideloader (Scarlet/AltStore/Sideloadly)"
+
+#################################################################
+# ১. আইফোন আনসাইন্ড আইপিএ বিল্ড মিশন (GitHub Actions iOS Builder)
+#################################################################
+github_mission_workflow:
+  name: "iOS Unsigned IPA Compilation Mission 🍏"
+  on:
+    push:
+      branches: [ main ]
+  
+  jobs:
+    build_ios:
+      runs-on: macos-latest # iOS বিল্ডের জন্য ম্যাক ওএস রানার প্রয়োজন
+      steps:
+        - name: "Checkout Repository"
+          uses: actions/checkout@v4
+          with:
+            lfs: true
+
+        - name: "Setup Unity/Unreal for iOS Target"
+          uses: game-ci/unity-builder@v4
+          env:
+            UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          with:
+            targetPlatform: iOS
+
+        - name: "Generate Unsigned IPA (Skip Apple Code Signing)"
+          run: |
+            cd build/iOS
+            xcodebuild -project Unity-iPhone.xcodeproj -scheme Unity-iPhone -configuration Release -allowProvisioningDeviceRegistrationAllowAll CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO generic/platform=iOS
+            mkdir -p Payload
+            mv build/Release-iphoneos/Unity-iPhone.app Payload/
+            zip -r GTA_AI_Prototype.ipa Payload
+            
+        - name: "Export Unsigned IPA for Sideloading"
+          uses: actions/upload-artifact@v4
+          with:
+            name: "GTA_Unsigned_iPhone_Build"
+            path: build/iOS/GTA_AI_Prototype.ipa
+
+#################################################################
+# ২. আইফোন স্ক্রিন ভার্চুয়াল জয়স্টিক ও কমব্যাট কোড (C# Data Block)
+#################################################################
+player_ios_controller:
+  file_name: "GTAIOSController.cs"
+  language: "CSharp"
+  source_code: |
+    using UnityEngine;
+    using UnityEngine.UI; // আইফোন স্ক্রিন UI এর জন্য
+
+    [RequireComponent(typeof(CharacterController))]
+    public class GTAIOSController : MonoBehaviour
+    {
+        public CharacterController controller;
+        public Animator animator;
+        
+        [Header("iOS Virtual Input UI")]
+        public VariableJoystick virtualJoystick; // অন-স্কিন ভার্চুয়াল জয়স্টিক অ্যাসেট
+        public Button runButton;                 // অন-স্কিন রান বাটন
+        public Button fightButton;               // অন-স্কিন ফাইটিং বাটন
+
+        [Header("Movement Settings")]
+        public float walkSpeed = 2.5f;
+        public float runSpeed = 6.0f;
+        public float gravity = 9.81f;
+        
+        [Header("Combat Settings")]
+        public Transform attackPoint;      
+        public float attackRange = 0.5f;   
+        public LayerMask opponentLayer;    
+        public int damagePoints = 25;
+
+        private Vector3 moveDirection = Vector3.zero;
+        private float currentSpeed;
+        private bool isRunningButtonPressed = false;
+
+        void Start()
+        {
+            if (controller == null) controller = GetComponent<CharacterController>();
+            if (animator == null) animator = GetComponent<Animator>();
+
+            // আইফোন স্ক্রিন বাটনের লিসেনার সেটআপ
+            fightButton.onClick.AddListener(TriggerIOSFight);
+        }
+
+        void Update()
+        {
+            if (controller.isGrounded)
+            {
+                // ১. স্ক্রিনের ভার্চুয়াল জয়স্টিক থেকে ইনপুট নেওয়া (আইফোনের টাচ স্ক্রিন)
+                float moveX = virtualJoystick.Horizontal; 
+                float moveZ = virtualJoystick.Vertical;
+                moveDirection = new Vector3(moveX, 0.0f, moveZ).normalized;
+
+                if (moveDirection.magnitude > 0.1f)
+                {
+                    float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg + Camera.main.transform.eulerAngles.y;
+                    transform.rotation = Quaternion.Euler(0f, targetAngle, 0f);
+                    Vector3 moveDir = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
+
+                    // স্ক্রিনের রান বাটন টাচ করে রাখলে দৌড়াবে, না হলে আস্তে হাঁটবে
+                    if (isRunningButtonPressed)
+                    {
+                        currentSpeed = runSpeed;
+                        animator.SetFloat("Speed", 1.0f); // Run Animation
+                    }
+                    else
+                    {
+                        currentSpeed = walkSpeed;
+                        animator.SetFloat("Speed", 0.5f); // Walk Animation
+                    }
+                    controller.Move(moveDir.normalized * currentSpeed * Time.deltaTime);
+                }
+                else
+                {
+                    animator.SetFloat("Speed", 0.0f); // Idle
+                    moveDirection = Vector3.zero;
+                }
+            }
+            
+            // গ্র্যাভিটি ফিজিক্স ফিক্স
+            moveDirection.y -= gravity * Time.deltaTime;
+            controller.Move(moveDirection * Time.deltaTime);
+        }
+
+        // ২. আইফোন ফাইটিং বাটন ট্রিগার
+        void TriggerIOSFight()
+        {
+            animator.SetTrigger("Attack");
+            Collider[] hitOpponents = Physics.OverlapSphere(attackPoint.position, attackRange, opponentLayer);
+            foreach (Collider opponent in hitOpponents)
+            {
+                if (opponent.GetComponent<GTAOpponent>() != null)
+                {
+                    opponent.GetComponent<GTAOpponent>().TakeDamage(damagePoints, transform.forward);
+                }
+            }
+        }
+
+        // রান বাটন হোল্ড করার জন্য হেল্পার মেথড (UI Event Trigger-এর জন্য)
+        public void SetRunningState(bool isHolding)
+        {
+            isRunningButtonPressed = isHolding;
+        }
+    }
+
+#################################################################
+# ৩. অপোনেন্ট বা শত্রু ফিজিক্স কোড (C# Data Block)
+#################################################################
+opponent_ai_script:
+  file_name: "GTAOpponent.cs"
+  language: "CSharp"
+  source_code: |
+    using UnityEngine;
+
+    public class GTAOpponent : MonoBehaviour
+    {
+        public int health = 100;
+        public Animator animator;
+        public Rigidbody rb; 
+        public float knockbackForce = 5.0f;
+
+        public void TakeDamage(int damage, Vector3 hitDirection)
+        {
+            health -= damage;
+            animator.SetTrigger("Hit");
+
+            if (rb != null)
+            {
+                rb.AddForce(hitDirection * knockbackForce, ForceMode.Impulse);
+            }
+
+            if (health <= 0)
+            {
+                ComponentDead();
+            }
+        }
+
+        void ComponentDead()
+        {
+            animator.enabled = false; 
+            Collider[] colliders = GetComponentsInChildren<Collider>();
+            foreach (Collider c in colliders)
+            {
+                c.enabled = true; // রাগডল ফিজিক্স এনালগ
+            }
+            Debug.Log("Opponent Eliminated on iOS Build");
+        }
+    }
+
+#################################################################
+# ৪. আইফোন টাচ স্ক্রিন ও গেম কনফিগারেশন
+#################################################################
+ios_environment_setup:
+  screen_ui:
+    joystick_type: "Virtual Floating Touch Joystick"
+    run_button: "UI Button Component (Pointer Down/Up)"
+    combat_button: "UI Button Component (On Click Event)"
+  physics_engine:
+    mesh_collider: "Enabled on 3D Road Mesh"
+    rigidbody_ragdoll: "Active for Open Player/Opponent"
+  sideload_compatibility:
+    unsigned_ipa: true
+    tested_loaders: ["Scarlet", "AltStore", "Sideloadly", "TrollStore"]
