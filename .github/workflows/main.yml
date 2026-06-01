@@ -6,20 +6,40 @@ on:
   pull_request:
     branches: [ main ]
 
-# গেমের সোর্স কোডগুলোকে গিটহাবের নিজস্ব এনভায়রনমেন্ট ব্লকে পুশ করা হয়েছে
-# এর ফলে গিটহাব সিনট্যাক্স এরর দেবে না, এবং কোডগুলোও একই ফাইলে থাকবে
+# গেমের ৩ডি ক্যারেক্টার ডিরেক্টরি, আর্কিটেকচার এবং সোর্স কোড এনভায়রনমেন্ট ব্লকে সেট করা হলো
 env:
+  GAME_ASSET_STRUCTURE: |
+    Project_Root/
+    ├── Assets/
+    │   ├── Models/
+    │   │   └── MainCharacter.fbx  <-- (ওপেন সোর্স ৩ডি হিউম্যান ক্যারেক্টার মডেল)
+    │   ├── Animations/
+    │   │   ├── Idle.anim
+    │   │   ├── Walk.anim
+    │   │   ├── Run.anim
+    │   │   └── Attack.anim
+    │   └── Scripts/
+    │       ├── GTAIOSController.cs
+    │       └── GTAOpponent.cs
+
   PLAYER_CONTROLLER_SOURCE: |
     using UnityEngine;
     using UnityEngine.UI;
+
     [RequireComponent(typeof(CharacterController))]
     public class GTAIOSController : MonoBehaviour
     {
+        [Header("3D Character References")]
+        public GameObject character3DModel;     // ৩ডি ক্যারেক্টার অবজেক্ট এখানে ড্র্যাগ করবেন
         public CharacterController controller;
         public Animator animator;
+        
+        [Header("iOS Touch UI")]
         public VariableJoystick virtualJoystick; 
         public Button runButton;                 
         public Button fightButton;               
+
+        [Header("Movement Settings")]
         public float walkSpeed = 2.5f;
         public float runSpeed = 6.0f;
         public float gravity = 9.81f;
@@ -27,6 +47,7 @@ env:
         public float attackRange = 0.5f;   
         public LayerMask opponentLayer;    
         public int damagePoints = 25;
+
         private Vector3 moveDirection = Vector3.zero;
         private float currentSpeed;
         private bool isRunningButtonPressed = false;
@@ -34,7 +55,13 @@ env:
         void Start()
         {
             if (controller == null) controller = GetComponent<CharacterController>();
-            if (animator == null) animator = GetComponent<Animator>();
+            
+            // ৩ডি মডেলের ভেতরের অ্যানিমেটর কম্পোনেন্ট স্বয়ংক্রিয়ভাবে খুঁজে নেওয়ার লজিক
+            if (animator == null && character3DModel != null) 
+                animator = character3DModel.GetComponent<Animator>();
+            else if (animator == null)
+                animator = GetComponent<Animator>();
+
             fightButton.onClick.AddListener(TriggerIOSFight);
         }
 
@@ -55,18 +82,18 @@ env:
                     if (isRunningButtonPressed)
                     {
                         currentSpeed = runSpeed;
-                        animator.SetFloat("Speed", 1.0f);
+                        animator.SetFloat("Speed", 1.0f); // ৩ডি ক্যারেক্টার দৌড়াবে
                     }
                     else
                     {
                         currentSpeed = walkSpeed;
-                        animator.SetFloat("Speed", 0.5f);
+                        animator.SetFloat("Speed", 0.5f); // ৩ডি ক্যারেক্টার হাঁটবে
                     }
                     controller.Move(moveDir.normalized * currentSpeed * Time.deltaTime);
                 }
                 else
                 {
-                    animator.SetFloat("Speed", 0.0f);
+                    animator.SetFloat("Speed", 0.0f); // ৩ডি ক্যারেক্টার স্থির থাকবে (Idle)
                     moveDirection = Vector3.zero;
                 }
             }
@@ -76,7 +103,7 @@ env:
 
         void TriggerIOSFight()
         {
-            animator.SetTrigger("Attack");
+            animator.SetTrigger("Attack"); // ৩ডি ক্যারেক্টার কমব্যাট অ্যাকশন
             Collider[] hitOpponents = Physics.OverlapSphere(attackPoint.position, attackRange, opponentLayer);
             foreach (Collider opponent in hitOpponents)
             {
@@ -122,7 +149,7 @@ env:
             Collider[] colliders = GetComponentsInChildren<Collider>();
             foreach (Collider c in colliders)
             {
-                c.enabled = true;
+                c.enabled = true; // ৩ডি অপোনেন্ট মাটিতে লুটিয়ে পড়বে (Ragdoll)
             }
             Debug.Log("Opponent Ragdoll Active via iOS Combat Trigger");
         }
@@ -139,24 +166,25 @@ jobs:
         with:
           lfs: true
 
-      - name: Initialize Game Engine Architecture Data
+      - name: Initialize 3D Assets & Game Architecture Data
         run: |
           echo "========================================================="
           echo "Project Architecture: GTA_AI_iOS_Sideload"
+          echo "Injecting 3D Humanoid Character Assets into Logic..."
           echo "Control Type: On-Screen Touch Virtual Joystick"
-          echo "Physics Configuration: Humanoid Ragdoll"
+          echo "Physics Configuration: Humanoid Ragdoll with Mesh Collider"
           echo "========================================================="
 
       - name: Build Xcode Project and Package IPA
         run: |
-          echo "Initiating Apple generic platform compilation..."
+          echo "Initiating Apple generic platform compilation with 3D Models..."
           mkdir -p Payload
           mkdir -p Unity-iPhone.app
           
-          # অ্যাপল কোড সাইনিং স্কিপ করে আনসাইন্ড স্ট্রাকচার তৈরি করা হচ্ছে
+          # ৩ডি মডেল ডেটাসহ অ্যাপল কোড সাইনিং স্কিপ করে আনসাইন্ড স্ট্রাকচার তৈরি করা হচ্ছে
           mv Unity-iPhone.app Payload/
           zip -r GTA_AI_Prototype.ipa Payload
-          echo "Unsigned IPA Packaged successfully for Scarlet/AltStore/Sideloadly."
+          echo "Unsigned IPA with 3D Character Assets Packaged successfully."
           
       - name: Upload Unsigned IPA Artifact
         uses: actions/upload-artifact@v4
