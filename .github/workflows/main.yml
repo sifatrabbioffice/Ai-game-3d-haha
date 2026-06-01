@@ -6,6 +6,128 @@ on:
   pull_request:
     branches: [ main ]
 
+# গেমের সোর্স কোডগুলোকে গিটহাবের নিজস্ব এনভায়রনমেন্ট ব্লকে পুশ করা হয়েছে
+# এর ফলে গিটহাব সিনট্যাক্স এরর দেবে না, এবং কোডগুলোও একই ফাইলে থাকবে
+env:
+  PLAYER_CONTROLLER_SOURCE: |
+    using UnityEngine;
+    using UnityEngine.UI;
+    [RequireComponent(typeof(CharacterController))]
+    public class GTAIOSController : MonoBehaviour
+    {
+        public CharacterController controller;
+        public Animator animator;
+        public VariableJoystick virtualJoystick; 
+        public Button runButton;                 
+        public Button fightButton;               
+        public float walkSpeed = 2.5f;
+        public float runSpeed = 6.0f;
+        public float gravity = 9.81f;
+        public Transform attackPoint;      
+        public float attackRange = 0.5f;   
+        public LayerMask opponentLayer;    
+        public int damagePoints = 25;
+        private Vector3 moveDirection = Vector3.zero;
+        private float currentSpeed;
+        private bool isRunningButtonPressed = false;
+
+        void Start()
+        {
+            if (controller == null) controller = GetComponent<CharacterController>();
+            if (animator == null) animator = GetComponent<Animator>();
+            fightButton.onClick.AddListener(TriggerIOSFight);
+        }
+
+        void Update()
+        {
+            if (controller.isGrounded)
+            {
+                float moveX = virtualJoystick.Horizontal; 
+                float moveZ = virtualJoystick.Vertical;
+                moveDirection = new Vector3(moveX, 0.0f, moveZ).normalized;
+
+                if (moveDirection.magnitude > 0.1f)
+                {
+                    float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg + Camera.main.transform.eulerAngles.y;
+                    transform.rotation = Quaternion.Euler(0f, targetAngle, 0f);
+                    Vector3 moveDir = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
+
+                    if (isRunningButtonPressed)
+                    {
+                        currentSpeed = runSpeed;
+                        animator.SetFloat("Speed", 1.0f);
+                    }
+                    else
+                    {
+                        currentSpeed = walkSpeed;
+                        animator.SetFloat("Speed", 0.5f);
+                    }
+                    controller.Move(moveDir.normalized * currentSpeed * Time.deltaTime);
+                }
+                else
+                {
+                    animator.SetFloat("Speed", 0.0f);
+                    moveDirection = Vector3.zero;
+                }
+            }
+            moveDirection.y -= gravity * Time.deltaTime;
+            controller.Move(moveDirection * Time.deltaTime);
+        }
+
+        void TriggerIOSFight()
+        {
+            animator.SetTrigger("Attack");
+            Collider[] hitOpponents = Physics.OverlapSphere(attackPoint.position, attackRange, opponentLayer);
+            foreach (Collider opponent in hitOpponents)
+            {
+                if (opponent.GetComponent<GTAOpponent>() != null)
+                {
+                    opponent.GetComponent<GTAOpponent>().TakeDamage(damagePoints, transform.forward);
+                }
+            }
+        }
+
+        public void SetRunningState(bool isHolding)
+        {
+            isRunningButtonPressed = isHolding;
+        }
+    }
+
+  OPPONENT_AI_SOURCE: |
+    using UnityEngine;
+    public class GTAOpponent : MonoBehaviour
+    {
+        public int health = 100;
+        public Animator animator;
+        public Rigidbody rb; 
+        public float knockbackForce = 5.0f;
+
+        public void TakeDamage(int damage, Vector3 hitDirection)
+        {
+            health -= damage;
+            animator.SetTrigger("Hit");
+            if (rb != null)
+            {
+                rb.AddForce(hitDirection * knockbackForce, ForceMode.Impulse);
+            }
+            if (health <= 0)
+            {
+                ComponentDead();
+            }
+        }
+
+        void ComponentDead()
+        {
+            animator.enabled = false; 
+            Collider[] colliders = GetComponentsInChildren<Collider>();
+            foreach (Collider c in colliders)
+            {
+                c.enabled = true;
+            }
+            Debug.Log("Opponent Ragdoll Active via iOS Combat Trigger");
+        }
+    }
+
 jobs:
   build_ios_unsigned:
     name: Compile and Generate Unsigned IPA 🎮
@@ -20,17 +142,10 @@ jobs:
       - name: Initialize Game Engine Architecture Data
         run: |
           echo "========================================================="
-          echo "Starting Project: GTA_AI_iOS_Sideload"
-          echo "Target Environment: iOS Unsigned IPA for Sideloader"
-          echo "Control Architecture: On-Screen Touch Virtual Joystick"
-          echo "Physics Configuration: Humanoid Ragdoll with Mesh Collider"
+          echo "Project Architecture: GTA_AI_iOS_Sideload"
+          echo "Control Type: On-Screen Touch Virtual Joystick"
+          echo "Physics Configuration: Humanoid Ragdoll"
           echo "========================================================="
-
-      - name: Extract and Verify CSharp Game Components
-        run: |
-          echo "Extracting Core Controllers from YML Configuration..."
-          # এই কমান্ডটি ভ্যালিডেশন চেক রান করবে যেন কোড কম্পাইলেশনে কোনো ইস্যু না থাকে
-          echo "GTAPlayerController and GTAOpponent components verified successfully."
 
       - name: Build Xcode Project and Package IPA
         run: |
@@ -48,140 +163,3 @@ jobs:
         with:
           name: GTA_Unsigned_iPhone_Build
           path: GTA_AI_Prototype.ipa
-
-#################################################################
-# গেম ইঞ্জিন সোর্স ডেটা স্টোরেজ (YML ভ্যালিডেটেড ডাটা ব্লক)
-# এই অংশটি গিটহাব রানার স্ক্রিপ্ট হিসেবে ইগনোর করবে, কিন্তু প্রজেক্টের 
-# আর্কিটেকচার ডেটা এবং এআই এডিটর এখান থেকে সরাসরি সোর্স কোড রিড করতে পারবে।
-#################################################################
-game_source_code_vault:
-  player_controller:
-    file_name: "GTAIOSController.cs"
-    language: "CSharp"
-    code: |
-      using UnityEngine;
-      using UnityEngine.UI;
-
-      [RequireComponent(typeof(CharacterController))]
-      public class GTAIOSController : MonoBehaviour
-      {
-          public CharacterController controller;
-          public Animator animator;
-          public VariableJoystick virtualJoystick; 
-          public Button runButton;                 
-          public Button fightButton;               
-
-          public float walkSpeed = 2.5f;
-          public float runSpeed = 6.0f;
-          public float gravity = 9.81f;
-          public Transform attackPoint;      
-          public float attackRange = 0.5f;   
-          public LayerMask opponentLayer;    
-          public int damagePoints = 25;
-
-          private Vector3 moveDirection = Vector3.zero;
-          private float currentSpeed;
-          private bool isRunningButtonPressed = false;
-
-          void Start()
-          {
-              if (controller == null) controller = GetComponent<CharacterController>();
-              if (animator == null) animator = GetComponent<Animator>();
-              fightButton.onClick.AddListener(TriggerIOSFight);
-          }
-
-          void Update()
-          {
-              if (controller.isGrounded)
-              {
-                  float moveX = virtualJoystick.Horizontal; 
-                  float moveZ = virtualJoystick.Vertical;
-                  moveDirection = new Vector3(moveX, 0.0f, moveZ).normalized;
-
-                  if (moveDirection.magnitude > 0.1f)
-                  {
-                      float targetAngle = Mathf.Atan2(moveDirection.x, moveDirection.z) * Mathf.Rad2Deg + Camera.main.transform.eulerAngles.y;
-                      transform.rotation = Quaternion.Euler(0f, targetAngle, 0f);
-                      Vector3 moveDir = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
-
-                      if (isRunningButtonPressed)
-                      {
-                          currentSpeed = runSpeed;
-                          animator.SetFloat("Speed", 1.0f);
-                      }
-                      else
-                      {
-                          currentSpeed = walkSpeed;
-                          animator.SetFloat("Speed", 0.5f);
-                      }
-                      controller.Move(moveDir.normalized * currentSpeed * Time.deltaTime);
-                  }
-                  else
-                  {
-                      animator.SetFloat("Speed", 0.0f);
-                      moveDirection = Vector3.zero;
-                  }
-              }
-              moveDirection.y -= gravity * Time.deltaTime;
-              controller.Move(moveDirection * Time.deltaTime);
-          }
-
-          void TriggerIOSFight()
-          {
-              animator.SetTrigger("Attack");
-              Collider[] hitOpponents = Physics.OverlapSphere(attackPoint.position, attackRange, opponentLayer);
-              foreach (Collider opponent in hitOpponents)
-              {
-                  if (opponent.GetComponent<GTAOpponent>() != null)
-                  {
-                      opponent.GetComponent<GTAOpponent>().TakeDamage(damagePoints, transform.forward);
-                  }
-              }
-          }
-
-          public void SetRunningState(bool isHolding)
-          {
-              isRunningButtonPressed = isHolding;
-          }
-      }
-
-  opponent_ai:
-    file_name: "GTAOpponent.cs"
-    language: "CSharp"
-    code: |
-      using UnityEngine;
-
-      public class GTAOpponent : MonoBehaviour
-      {
-          public int health = 100;
-          public Animator animator;
-          public Rigidbody rb; 
-          public float knockbackForce = 5.0f;
-
-          public void TakeDamage(int damage, Vector3 hitDirection)
-          {
-              health -= damage;
-              animator.SetTrigger("Hit");
-
-              if (rb != null)
-              {
-                  rb.AddForce(hitDirection * knockbackForce, ForceMode.Impulse);
-              }
-
-              if (health <= 0)
-              {
-                  ComponentDead();
-              }
-          }
-
-          void ComponentDead()
-          {
-              animator.enabled = false; 
-              Collider[] colliders = GetComponentsInChildren<Collider>();
-              foreach (Collider c in colliders)
-              {
-                  c.enabled = true;
-              }
-              Debug.Log("Opponent Ragdoll Active via iOS Combat Trigger");
-          }
-      }
