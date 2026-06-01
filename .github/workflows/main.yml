@@ -138,7 +138,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── JoystickView (FIXED CGCOLOR) ──────────────────────────────────────────
+      # ── JoystickView ─────────────────────────────────────────────────────────
       - name: JoystickView.swift
         run: |
           cat > SV3D/Sources/JoystickView.swift << 'SWIFT_EOF'
@@ -474,7 +474,14 @@ jobs:
                   let spd = kind.speed * dt
                   position.x += dx / dist * spd
                   position.z += dz / dist * spd
-                  eulerAngles.y = atan2(dx, dz)
+                  
+                  // Smooth look-at logic for enemies
+                  let targetAngle = atan2(dx, dz)
+                  let currentAngle = eulerAngles.y
+                  var diff = targetAngle - currentAngle
+                  while diff < -.pi { diff += .pi * 2 }
+                  while diff > .pi { diff -= .pi * 2 }
+                  eulerAngles.y += diff * 0.12
               }
 
               func distanceTo(_ p: SCNVector3) -> Float {
@@ -489,7 +496,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── GameViewController (AAA HIGH RESOLUTION RIG) ──────────────────────────
+      # ── GameViewController (AAA HIGH RESOLUTION RIG & SMOOTH ANIMATION) ──────
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -520,6 +527,15 @@ jobs:
               private var gunNode:      SCNNode!
               
               private var animationTime: Float = 0.0
+              private var targetBodyAngle: Float = 0.0
+              private var currentBodyAngle: Float = 0.0
+
+              // Lerp buffer states for smooth bone transitions
+              private var currentLeftThighX: Float = 0.0
+              private var currentRightThighX: Float = 0.0
+              private var currentLeftShinX: Float = 0.0
+              private var currentRightShinX: Float = 0.0
+              private var currentPelvisY: Float = 0.95
 
               private var health      : Float        = 100
               private var maxHealth   : Float        = 100
@@ -941,18 +957,38 @@ jobs:
                   let mv  = moveJoystick.velocity
                   let len = sqrt(mv.x * mv.x + mv.y * mv.y)
 
+                  // Lerp tuning constants for heavy AAA physical presence
+                  let lerpSpeed: Float = dt * 11.5
+
                   guard len > 0.1 else {
                       // AAA Procedural Breathing Idle Loop
                       animationTime += dt * 2.2
                       let breatheFactor = sin(animationTime)
-                      pelvisNode.position.y = 0.95 + CGFloat(breatheFactor * 0.015)
+                      
+                      let targetY = 0.95 + (breatheFactor * 0.015)
+                      currentPelvisY += (targetY - currentPelvisY) * lerpSpeed
+                      pelvisNode.position.y = currentPelvisY
+
                       chestNode.eulerAngles.x = breatheFactor * 0.012
                       headNode.eulerAngles.x = -breatheFactor * 0.008
                       
-                      leftThigh.eulerAngles.x = 0; leftShin.eulerAngles.x = 0
-                      rightThigh.eulerAngles.x = 0; rightShin.eulerAngles.x = 0
+                      currentLeftThighX += (0.0 - currentLeftThighX) * lerpSpeed
+                      currentRightThighX += (0.0 - currentRightThighX) * lerpSpeed
+                      currentLeftShinX += (0.0 - currentLeftShinX) * lerpSpeed
+                      currentRightShinX += (0.0 - currentRightShinX) * lerpSpeed
+
+                      leftThigh.eulerAngles.x = currentLeftThighX
+                      rightThigh.eulerAngles.x = currentRightThighX
+                      leftShin.eulerAngles.x = currentLeftShinX
+                      rightShin.eulerAngles.x = currentRightShinX
+
                       leftArmNode.eulerAngles.x = 0; leftArmNode.eulerAngles.z = 0.05
                       rightArmNode.eulerAngles.x = -0.12; rightArmNode.eulerAngles.y = -0.05
+                      
+                      // Smoothly blend rotational velocity down to rest configuration
+                      let diff = targetBodyAngle - currentBodyAngle
+                      currentBodyAngle += diff * lerpSpeed
+                      playerBody.eulerAngles.y = currentBodyAngle
                       return
                   }
 
@@ -972,21 +1008,41 @@ jobs:
                   finalPos.x = max(-boundary, min(boundary, finalPos.x))
                   finalPos.z = max(-boundary, min(boundary, finalPos.z))
                   playerNode.simdPosition = finalPos
-                  playerBody.eulerAngles.y = atan2(dir.x, dir.z)
+
+                  // AAA Angular Interpolation (Slerp-like angle handling)
+                  targetBodyAngle = atan2(dir.x, dir.z)
+                  var angleDiff = targetBodyAngle - currentBodyAngle
+                  while angleDiff < -.pi { angleDiff += .pi * 2 }
+                  while angleDiff > .pi { angleDiff -= .pi * 2 }
+                  currentBodyAngle += angleDiff * lerpSpeed
+                  playerBody.eulerAngles.y = currentBodyAngle
 
                   // AAA Engine Procedural Motion Engine Matching Travel Speed
                   animationTime += dt * matrixFactor * 14.5
                   let primaryOscillation = sin(animationTime)
                   let secondaryOscillation = cos(animationTime)
 
-                  pelvisNode.position.y = 0.95 + CGFloat(abs(primaryOscillation) * 0.04)
+                  let targetY = 0.95 + (abs(primaryOscillation) * 0.04)
+                  currentPelvisY += (targetY - currentPelvisY) * lerpSpeed
+                  pelvisNode.position.y = currentPelvisY
+                  
                   chestNode.eulerAngles.y = primaryOscillation * 0.05
 
-                  leftThigh.eulerAngles.x = primaryOscillation * 0.62
-                  leftShin.eulerAngles.x = max(0, -secondaryOscillation * 0.55)
-                  
-                  rightThigh.eulerAngles.x = -primaryOscillation * 0.62
-                  rightShin.eulerAngles.x = max(0, secondaryOscillation * 0.55)
+                  // Distribute target joint goals into interpolation buffers
+                  let targetLT = primaryOscillation * 0.62
+                  let targetRT = -primaryOscillation * 0.62
+                  let targetLS = max(0, -secondaryOscillation * 0.55)
+                  let targetRS = max(0, secondaryOscillation * 0.55)
+
+                  currentLeftThighX += (targetLT - currentLeftThighX) * lerpSpeed
+                  currentRightThighX += (targetRT - currentRightThighX) * lerpSpeed
+                  currentLeftShinX += (targetLS - currentLeftShinX) * lerpSpeed
+                  currentRightShinX += (targetRS - currentRightShinX) * lerpSpeed
+
+                  leftThigh.eulerAngles.x = currentLeftThighX
+                  rightThigh.eulerAngles.x = currentRightThighX
+                  leftShin.eulerAngles.x = currentLeftShinX
+                  rightShin.eulerAngles.x = currentRightShinX
 
                   leftArmNode.eulerAngles.x = -primaryOscillation * 0.50
                   rightArmNode.eulerAngles.x = (primaryOscillation * 0.08) - 0.28
@@ -1328,6 +1384,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ShadowVillage3D-HighRes
+          name: ShadowVillage3D-HighRes-Smooth
           path: ShadowVillage3D.ipa
           retention-days: 14
