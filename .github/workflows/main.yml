@@ -138,7 +138,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── JoystickView ─────────────────────────────────────────────────────────
+      # ── JoystickView (FIXED CGCOLOR ERRORS) ──────────────────────────────────
       - name: JoystickView.swift
         run: |
           cat > SV3D/Sources/JoystickView.swift << 'SWIFT_EOF'
@@ -161,7 +161,7 @@ jobs:
                   ring.frame               = bounds
                   ring.layer.cornerRadius  = radius
                   ring.backgroundColor     = UIColor(white: 0.03, alpha: 0.40)
-                  ring.layer.borderColor   = UIColor(white: 1.0, alpha: 0.35)
+                  ring.layer.borderColor   = UIColor(white: 1.0, alpha: 0.35).cgColor
                   ring.layer.borderWidth   = 2
                   addSubview(ring)
 
@@ -169,7 +169,7 @@ jobs:
                   knob.frame               = CGRect(x: radius - kR, y: radius - kR, width: kR * 2, height: kR * 2)
                   knob.layer.cornerRadius  = kR
                   knob.backgroundColor     = UIColor(white: 1.0, alpha: 0.45)
-                  knob.layer.borderColor   = UIColor(white: 1.0, alpha: 0.75)
+                  knob.layer.borderColor   = UIColor(white: 1.0, alpha: 0.75).cgColor
                   knob.layer.borderWidth   = 2
                   addSubview(knob)
               }
@@ -326,7 +326,7 @@ jobs:
               }
 
               func showMessage(_ text: String, color: UIColor = .white, duration: TimeInterval = 2.0) {
-                  msgLbl.text      = text.uppercased()
+                  msgLbl.text      = text.uppercened()
                   msgLbl.textColor = color
                   msgLbl.alpha     = 0
                   msgLbl.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
@@ -342,7 +342,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── EnemyNode (FIXED & FULL PBR ENGINE IMPLEMENTATION) ───────────────────
+      # ── EnemyNode ────────────────────────────────────────────────────────────
       - name: EnemyNode.swift
         run: |
           cat > SV3D/Sources/EnemyNode.swift << 'SWIFT_EOF'
@@ -489,7 +489,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── GameViewController (ADVANCED SYSTEMS & SCREEN SHAKE INTEGRATION) ─────
+      # ── GameViewController ───────────────────────────────────────────────────
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -533,7 +533,6 @@ jobs:
               private var bullets     : [SCNNode]    = []
               private var lastShotTime: TimeInterval = 0
               
-              // Screen Shake Engine
               private var shakeIntensity: Float = 0.0
 
               private var moveJoystick: JoystickView!
@@ -847,7 +846,6 @@ jobs:
 
                   moveAndAnimatePlayer(dt: dt)
                   
-                  // Compute Matrix Shaker Offset values
                   if shakeIntensity > 0.01 {
                       let sx = Float.random(in: -1...1) * shakeIntensity
                       let sy = Float.random(in: -1...1) * shakeIntensity
@@ -1037,7 +1035,6 @@ jobs:
                       let bullet = mA == PhysicsMask.bullet ? nA : nB
                       let enemy = (mA == PhysicsMask.enemy ? nA : nB) as? EnemyNode
                       
-                      // Inject Spark Elements Programmatically
                       createSparksAt(position: bullet.position)
                       
                       bullet.removeFromParentNode()
