@@ -138,7 +138,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── JoystickView (FIXED CGCOLOR ERRORS) ──────────────────────────────────
+      # ── JoystickView (FIXED CGCOLOR) ──────────────────────────────────────────
       - name: JoystickView.swift
         run: |
           cat > SV3D/Sources/JoystickView.swift << 'SWIFT_EOF'
@@ -326,7 +326,7 @@ jobs:
               }
 
               func showMessage(_ text: String, color: UIColor = .white, duration: TimeInterval = 2.0) {
-                  msgLbl.text      = text.uppercened()
+                  msgLbl.text      = text.uppercased()
                   msgLbl.textColor = color
                   msgLbl.alpha     = 0
                   msgLbl.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
@@ -489,7 +489,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── GameViewController ───────────────────────────────────────────────────
+      # ── GameViewController (AAA HIGH RESOLUTION RIG) ──────────────────────────
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -506,7 +506,10 @@ jobs:
               private var cameraArm:  SCNNode!
               private var cameraNode: SCNNode!
 
+              // AAA Procedural Rigging Node Hierarchy
+              private var pelvisNode:   SCNNode!
               private var spineNode:    SCNNode!
+              private var chestNode:    SCNNode!
               private var headNode:     SCNNode!
               private var leftThigh:    SCNNode!
               private var rightThigh:   SCNNode!
@@ -514,6 +517,8 @@ jobs:
               private var rightShin:    SCNNode!
               private var leftArmNode:  SCNNode!
               private var rightArmNode: SCNNode!
+              private var gunNode:      SCNNode!
+              
               private var animationTime: Float = 0.0
 
               private var health      : Float        = 100
@@ -650,85 +655,150 @@ jobs:
 
               private func spawnRealisticPlayer() {
                   playerNode = SCNNode()
-                  playerNode.position = SCNVector3(0, 1.4, 0)
+                  playerNode.position = SCNVector3(0, 0, 0)
 
                   playerBody = SCNNode()
                   playerNode.addChildNode(playerBody)
 
-                  let suitMat = SCNMaterial(); suitMat.lightingModel = .physicallyBased; suitMat.diffuse.contents = UIColor(white: 0.15, alpha: 1); suitMat.roughness.contents = 0.5
-                  let skinMat = SCNMaterial(); skinMat.lightingModel = .physicallyBased; skinMat.diffuse.contents = UIColor(red: 0.88, green: 0.72, blue: 0.62, alpha: 1); skinMat.roughness.contents = 0.3
-                  let armorMat = SCNMaterial(); armorMat.lightingModel = .physicallyBased; armorMat.diffuse.contents = UIColor(white: 0.25, alpha: 1); armorMat.metalness.contents = 0.85; armorMat.roughness.contents = 0.1
+                  // AAA Tactical Materials
+                  let carbonSuit = SCNMaterial()
+                  carbonSuit.lightingModel = .physicallyBased
+                  carbonSuit.diffuse.contents = UIColor(white: 0.11, alpha: 1)
+                  carbonSuit.roughness.contents = 0.55
+                  carbonSuit.metalness.contents = 0.25
 
-                  let spineGeo = SCNCylinder(radius: 0.18, height: 0.65)
-                  spineGeo.radialSegmentCount = 32
-                  spineGeo.materials = [suitMat]
+                  let titaniumPlates = SCNMaterial()
+                  titaniumPlates.lightingModel = .physicallyBased
+                  titaniumPlates.diffuse.contents = UIColor(white: 0.32, alpha: 1)
+                  titaniumPlates.metalness.contents = 0.92
+                  titaniumPlates.roughness.contents = 0.22
+
+                  let neonVisor = SCNMaterial()
+                  neonVisor.lightingModel = .constant
+                  neonVisor.diffuse.contents = UIColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 1)
+                  neonVisor.emission.contents = UIColor(red: 0.0, green: 0.60, blue: 0.90, alpha: 1)
+
+                  let energyCoreMat = SCNMaterial()
+                  energyCoreMat.lightingModel = .constant
+                  energyCoreMat.diffuse.contents = UIColor.orange
+                  energyCoreMat.emission.contents = UIColor.orange
+
+                  // Root Pelvis Node
+                  let pelvisGeo = SCNBox(width: 0.36, height: 0.16, length: 0.28, chamferRadius: 0.05)
+                  pelvisGeo.materials = [titaniumPlates]
+                  pelvisNode = SCNNode(geometry: pelvisGeo)
+                  pelvisNode.position = SCNVector3(0, 0.95, 0)
+                  playerBody.addChildNode(pelvisNode)
+
+                  // Spine & Segmented Chest Torso
+                  let spineGeo = SCNCylinder(radius: 0.08, height: 0.35)
+                  spineGeo.materials = [carbonSuit]
                   spineNode = SCNNode(geometry: spineGeo)
-                  spineNode.position = SCNVector3(0, 0.4, 0)
-                  playerBody.addChildNode(spineNode)
+                  spineNode.position = SCNVector3(0, 0.22, 0)
+                  pelvisNode.addChildNode(spineNode)
 
-                  let chestGeo = SCNBox(width: 0.48, height: 0.45, length: 0.32, chamferRadius: 0.06)
-                  chestGeo.materials = [armorMat]
-                  let chestNode = SCNNode(geometry: chestGeo)
-                  chestNode.position = SCNVector3(0, 0.15, 0)
+                  let chestGeo = SCNBox(width: 0.52, height: 0.42, length: 0.34, chamferRadius: 0.08)
+                  chestGeo.materials = [titaniumPlates]
+                  chestNode = SCNNode(geometry: chestGeo)
+                  chestNode.position = SCNVector3(0, 0.18, 0)
                   spineNode.addChildNode(chestNode)
 
-                  let headGeo = SCNSphere(radius: 0.15)
-                  headGeo.segmentCount = 32
-                  headGeo.materials = [skinMat]
-                  headNode = SCNNode(geometry: headGeo)
-                  headNode.position = SCNVector3(0, 0.48, 0)
-                  spineNode.addChildNode(headNode)
+                  // Chest Tech Details (Energy Core)
+                  let coreGeo = SCNCylinder(radius: 0.05, height: 0.04)
+                  coreGeo.materials = [energyCoreMat]
+                  let coreNode = SCNNode(geometry: coreGeo)
+                  coreNode.position = SCNVector3(0, 0.05, -0.18)
+                  coreNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
+                  chestNode.addChildNode(coreNode)
 
-                  let thighGeo = SCNCylinder(radius: 0.08, height: 0.38)
-                  thighGeo.materials = [suitMat]
-                  let shinGeo = SCNCylinder(radius: 0.06, height: 0.38)
-                  shinGeo.materials = [suitMat]
+                  // Tactical Cyber Head & Visor
+                  let headGeo = SCNBox(width: 0.24, height: 0.25, length: 0.24, chamferRadius: 0.04)
+                  headGeo.materials = [carbonSuit]
+                  headNode = SCNNode(geometry: headGeo)
+                  headNode.position = SCNVector3(0, 0.34, 0)
+                  chestNode.addChildNode(headNode)
+
+                  let visorGeo = SCNBox(width: 0.25, height: 0.07, length: 0.06, chamferRadius: 0.01)
+                  visorGeo.materials = [neonVisor]
+                  let visor = SCNNode(geometry: visorGeo)
+                  visor.position = SCNVector3(0, 0.04, -0.11)
+                  headNode.addChildNode(visor)
+
+                  // Lower Limb Rig Architecture
+                  let thighGeo = SCNCylinder(radius: 0.09, height: 0.44)
+                  thighGeo.materials = [carbonSuit]
+                  let shinGeo = SCNCylinder(radius: 0.07, height: 0.46)
+                  shinGeo.materials = [titaniumPlates]
 
                   leftThigh = SCNNode(geometry: thighGeo)
-                  leftThigh.pivot = SCNMatrix4MakeTranslation(0, 0.19, 0)
-                  leftThigh.position = SCNVector3(-0.14, -0.15, 0)
-                  playerBody.addChildNode(leftThigh)
+                  leftThigh.pivot = SCNMatrix4MakeTranslation(0, 0.22, 0)
+                  leftThigh.position = SCNVector3(-0.16, -0.10, 0)
+                  pelvisNode.addChildNode(leftThigh)
 
                   leftShin = SCNNode(geometry: shinGeo)
-                  leftShin.position = SCNVector3(0, -0.34, 0)
+                  leftShin.pivot = SCNMatrix4MakeTranslation(0, 0.23, 0)
+                  leftShin.position = SCNVector3(0, -0.42, 0)
                   leftThigh.addChildNode(leftShin)
 
                   rightThigh = SCNNode(geometry: thighGeo)
-                  rightThigh.pivot = SCNMatrix4MakeTranslation(0, 0.19, 0)
-                  rightThigh.position = SCNVector3(0.14, -0.15, 0)
-                  playerBody.addChildNode(rightThigh)
+                  rightThigh.pivot = SCNMatrix4MakeTranslation(0, 0.22, 0)
+                  rightThigh.position = SCNVector3(0.16, -0.10, 0)
+                  pelvisNode.addChildNode(rightThigh)
 
                   rightShin = SCNNode(geometry: shinGeo)
-                  rightShin.position = SCNVector3(0, -0.34, 0)
+                  rightShin.pivot = SCNMatrix4MakeTranslation(0, 0.23, 0)
+                  rightShin.position = SCNVector3(0, -0.42, 0)
                   rightThigh.addChildNode(rightShin)
 
-                  let armGeo = SCNCylinder(radius: 0.06, height: 0.55)
-                  armGeo.materials = [suitMat]
+                  // Upper Limb Rig Architecture (Arms & Weaponry)
+                  let armGeo = SCNCylinder(radius: 0.07, height: 0.50)
+                  armGeo.materials = [carbonSuit]
+
+                  let padGeo = SCNBox(width: 0.16, height: 0.14, length: 0.16, chamferRadius: 0.03)
+                  padGeo.materials = [titaniumPlates]
 
                   leftArmNode = SCNNode(geometry: armGeo)
-                  leftArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.27, 0)
-                  leftArmNode.position = SCNVector3(-0.26, 0.25, 0)
-                  spineNode.addChildNode(leftArmNode)
+                  leftArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.25, 0)
+                  leftArmNode.position = SCNVector3(-0.31, 0.16, 0)
+                  chestNode.addChildNode(leftArmNode)
+
+                  let leftPad = SCNNode(geometry: padGeo)
+                  leftPad.position = SCNVector3(-0.04, 0.22, 0)
+                  leftArmNode.addChildNode(leftPad)
 
                   rightArmNode = SCNNode(geometry: armGeo)
-                  rightArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.27, 0)
-                  rightArmNode.position = SCNVector3(0.26, 0.25, 0)
-                  spineNode.addChildNode(rightArmNode)
+                  rightArmNode.pivot = SCNMatrix4MakeTranslation(0, 0.25, 0)
+                  rightArmNode.position = SCNVector3(0.31, 0.16, 0)
+                  chestNode.addChildNode(rightArmNode)
 
-                  let gunGeo = SCNBox(width: 0.06, height: 0.08, length: 0.65, chamferRadius: 0.01)
-                  let metallicGunMat = SCNMaterial()
-                  metallicGunMat.lightingModel = .physicallyBased
-                  metallicGunMat.diffuse.contents = UIColor(white: 0.05, alpha: 1)
-                  metallicGunMat.metalness.contents = 0.95
-                  metallicGunMat.roughness.contents = 0.1
-                  gunGeo.materials = [metallicGunMat]
+                  let rightPad = SCNNode(geometry: padGeo)
+                  rightPad.position = SCNVector3(0.04, 0.22, 0)
+                  rightArmNode.addChildNode(rightPad)
+
+                  // Advanced Weapon Mesh Integration
+                  let gunGeo = SCNBox(width: 0.07, height: 0.11, length: 0.74, chamferRadius: 0.02)
+                  let gunMat = SCNMaterial()
+                  gunMat.lightingModel = .physicallyBased
+                  gunMat.diffuse.contents = UIColor(white: 0.03, alpha: 1)
+                  gunMat.metalness.contents = 0.98
+                  gunMat.roughness.contents = 0.08
+                  gunGeo.materials = [gunMat]
                   
-                  let gun = SCNNode(geometry: gunGeo)
-                  gun.position = SCNVector3(0, -0.28, -0.22)
-                  gun.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-                  rightArmNode.addChildNode(gun)
+                  gunNode = SCNNode(geometry: gunGeo)
+                  gunNode.position = SCNVector3(0, -0.26, -0.26)
+                  gunNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
+                  rightArmNode.addChildNode(gunNode)
 
-                  let shape = SCNPhysicsShape(geometry: SCNCapsule(capRadius: 0.42, height: 1.65), options: nil)
+                  // Under-barrel Light / Laser Attachment
+                  let laserGeo = SCNCylinder(radius: 0.015, height: 0.15)
+                  laserGeo.materials = [neonVisor]
+                  let laserNode = SCNNode(geometry: laserGeo)
+                  laserNode.position = SCNVector3(0, -0.05, -0.25)
+                  laserNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
+                  gunNode.addChildNode(laserNode)
+
+                  // Physics Capsule Mapping
+                  let shape = SCNPhysicsShape(geometry: SCNCapsule(capRadius: 0.44, height: 1.80), options: nil)
                   let body  = SCNPhysicsBody(type: .kinematic, shape: shape)
                   body.categoryBitMask    = PhysicsMask.player
                   body.contactTestBitMask = PhysicsMask.enemy | PhysicsMask.item
@@ -872,7 +942,17 @@ jobs:
                   let len = sqrt(mv.x * mv.x + mv.y * mv.y)
 
                   guard len > 0.1 else {
-                      executeProceduralSkeletonGait(moving: false, matrixFactor: 0, dt: dt)
+                      // AAA Procedural Breathing Idle Loop
+                      animationTime += dt * 2.2
+                      let breatheFactor = sin(animationTime)
+                      pelvisNode.position.y = 0.95 + CGFloat(breatheFactor * 0.015)
+                      chestNode.eulerAngles.x = breatheFactor * 0.012
+                      headNode.eulerAngles.x = -breatheFactor * 0.008
+                      
+                      leftThigh.eulerAngles.x = 0; leftShin.eulerAngles.x = 0
+                      rightThigh.eulerAngles.x = 0; rightShin.eulerAngles.x = 0
+                      leftArmNode.eulerAngles.x = 0; leftArmNode.eulerAngles.z = 0.05
+                      rightArmNode.eulerAngles.x = -0.12; rightArmNode.eulerAngles.y = -0.05
                       return
                   }
 
@@ -894,29 +974,22 @@ jobs:
                   playerNode.simdPosition = finalPos
                   playerBody.eulerAngles.y = atan2(dir.x, dir.z)
 
-                  executeProceduralSkeletonGait(moving: true, matrixFactor: matrixFactor, dt: dt)
-              }
+                  // AAA Engine Procedural Motion Engine Matching Travel Speed
+                  animationTime += dt * matrixFactor * 14.5
+                  let primaryOscillation = sin(animationTime)
+                  let secondaryOscillation = cos(animationTime)
 
-              private func executeProceduralSkeletonGait(moving: Bool, matrixFactor: Float, dt: Float) {
-                  if moving {
-                      animationTime += dt * matrixFactor * 14.0
-                      let primaryOscillation = sin(animationTime)
-                      let secondaryOscillation = cos(animationTime)
+                  pelvisNode.position.y = 0.95 + CGFloat(abs(primaryOscillation) * 0.04)
+                  chestNode.eulerAngles.y = primaryOscillation * 0.05
 
-                      leftThigh.eulerAngles.x = primaryOscillation * 0.55
-                      leftShin.eulerAngles.x = max(0, secondaryOscillation * 0.40)
-                      
-                      rightThigh.eulerAngles.x = -primaryOscillation * 0.55
-                      rightShin.eulerAngles.x = max(0, -secondaryOscillation * 0.40)
+                  leftThigh.eulerAngles.x = primaryOscillation * 0.62
+                  leftShin.eulerAngles.x = max(0, -secondaryOscillation * 0.55)
+                  
+                  rightThigh.eulerAngles.x = -primaryOscillation * 0.62
+                  rightShin.eulerAngles.x = max(0, secondaryOscillation * 0.55)
 
-                      leftArmNode.eulerAngles.x = -primaryOscillation * 0.45
-                      rightArmNode.eulerAngles.x = (primaryOscillation * 0.1) - 0.25
-                  } else {
-                      leftThigh.eulerAngles.x = 0; leftShin.eulerAngles.x = 0
-                      rightThigh.eulerAngles.x = 0; rightShin.eulerAngles.x = 0
-                      leftArmNode.eulerAngles.x = 0; rightArmNode.eulerAngles.x = -0.15
-                      animationTime = 0
-                  }
+                  leftArmNode.eulerAngles.x = -primaryOscillation * 0.50
+                  rightArmNode.eulerAngles.x = (primaryOscillation * 0.08) - 0.28
               }
 
               private func tryShoot(time: TimeInterval) {
