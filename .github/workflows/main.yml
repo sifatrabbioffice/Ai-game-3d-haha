@@ -138,60 +138,87 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── JoystickView ─────────────────────────────────────────────────────────
-      - name: JoystickView.swift
+      # ── VirtualJoystick (PS5 DualSense Textured Styling) ────────────────────
+      - name: VirtualJoystick.swift
         run: |
-          cat > SV3D/Sources/JoystickView.swift << 'SWIFT_EOF'
+          cat > SV3D/Sources/VirtualJoystick.swift << 'SWIFT_EOF'
           import UIKit
 
-          class JoystickView: UIView {
-              private let ring = UIView()
-              private let knob = UIView()
-              let radius: CGFloat
-              var velocity: SIMD2<Float> = .zero
-              var isActive: Bool = false
-              weak var trackingTouch: UITouch?
+          class VirtualJoystick: UIView {
+              private let baseRing = UIView()
+              private let thumbKnob = UIView()
+              private let innerGlow = UIView()
+              let maxRadius: CGFloat
+              
+              var inputVector: SIMD2<Float> = .zero
+              var isTracking: Bool = false
+              weak var currentTouch: UITouch?
 
               init(radius: CGFloat) {
-                  self.radius = radius
+                  self.maxRadius = radius
                   super.init(frame: CGRect(x: 0, y: 0, width: radius * 2, height: radius * 2))
+                  
+                  // Permissive tracking layer hierarchy adjustments
                   isUserInteractionEnabled = false
-                  alpha = 0.85
+                  backgroundColor = .clear
 
-                  ring.frame               = bounds
-                  ring.layer.cornerRadius  = radius
-                  ring.backgroundColor     = UIColor(white: 0.05, alpha: 0.50)
-                  ring.layer.borderColor   = UIColor(white: 1.0, alpha: 0.45) .cgColor
-                  ring.layer.borderWidth   = 2.5
-                  addSubview(ring)
+                  // Matte outer ring (DualSense Accent Color Profiles)
+                  baseRing.frame = bounds
+                  baseRing.layer.cornerRadius = radius
+                  baseRing.backgroundColor = UIColor(white: 0.08, alpha: 0.45)
+                  baseRing.layer.borderColor = UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.4).cgColor
+                  baseRing.layer.borderWidth = 2.0
+                  addSubview(baseRing)
 
-                  let kR                   = radius * 0.40
-                  knob.frame               = CGRect(x: radius - kR, y: radius - kR, width: kR * 2, height: kR * 2)
-                  knob.layer.cornerRadius  = kR
-                  knob.backgroundColor     = UIColor(white: 1.0, alpha: 0.60)
-                  knob.layer.borderColor   = UIColor(white: 1.0, alpha: 0.85).cgColor
-                  knob.layer.borderWidth   = 2
-                  addSubview(knob)
+                  // Center ergonomic knob
+                  let kSize = radius * 0.45
+                  thumbKnob.frame = CGRect(x: radius - kSize, y: radius - kSize, width: kSize * 2, height: kSize * 2)
+                  thumbKnob.layer.cornerRadius = kSize
+                  thumbKnob.backgroundColor = UIColor(white: 0.18, alpha: 0.85)
+                  thumbKnob.layer.borderColor = UIColor(white: 0.9, alpha: 0.7).cgColor
+                  thumbKnob.layer.borderWidth = 1.5
+                  
+                  // Inner decorative status track
+                  let gSize = kSize * 0.4
+                  innerGlow.frame = CGRect(x: kSize - gSize, y: kSize - gSize, width: gSize * 2, height: gSize * 2)
+                  innerGlow.layer.cornerRadius = gSize
+                  innerGlow.backgroundColor = UIColor(red: 0.0, green: 0.5, blue: 1.0, alpha: 0.6)
+                  thumbKnob.addSubview(innerGlow)
+                  
+                  addSubview(thumbKnob)
               }
+
               required init?(coder: NSCoder) { fatalError() }
 
-              func moveTouch(_ touch: UITouch, in parentView: UIView) {
-                  let pt   = touch.location(in: parentView)
-                  let cx   = frame.midX, cy = frame.midY
-                  let dx   = Float(pt.x - cx), dy = Float(pt.y - cy)
-                  let dist = sqrt(dx * dx + dy * dy)
-                  let maxD = Float(radius)
-                  let f    = dist <= maxD ? 1.0 : maxD / dist
-                  knob.center = CGPoint(x: cx + CGFloat(dx * f), y: cy + CGFloat(dy * f))
-                  velocity    = SIMD2<Float>(dx * f / maxD, dy * f / maxD)
-                  isActive    = dist > maxD * 0.08
+              func updateTrackPosition(_ touch: UITouch, within container: UIView) {
+                  let location = touch.location(in: container)
+                  let centerPt = center
+                  
+                  let dx = Float(location.x - centerPt.x)
+                  let dy = Float(location.y - centerPt.y)
+                  let currentDistance = sqrt(dx * dx + dy * dy)
+                  let limit = Float(maxRadius)
+
+                  if currentDistance <= limit {
+                      thumbKnob.center = CGPoint(x: maxRadius + CGFloat(dx), y: maxRadius + CGFloat(dy))
+                      inputVector = SIMD2<Float>(dx / limit, dy / limit)
+                  } else {
+                      let ratio = limit / currentDistance
+                      let clampedX = dx * ratio
+                      let clampedY = dy * ratio
+                      thumbKnob.center = CGPoint(x: maxRadius + CGFloat(clampedX), y: maxRadius + CGFloat(clampedY))
+                      inputVector = SIMD2<Float>(clampedX / limit, clampedY / limit)
+                  }
+                  isTracking = currentDistance > limit * 0.05
               }
 
-              func reset() {
-                  knob.center   = CGPoint(x: radius, y: radius)
-                  velocity      = .zero
-                  isActive      = false
-                  trackingTouch = nil
+              func clearInput() {
+                  inputVector = .zero
+                  isTracking = false
+                  currentTouch = nil
+                  UIView.animate(withDuration: 0.12, delay: 0, options: .curveEaseOut) {
+                      self.thumbKnob.center = CGPoint(x: self.maxRadius, y: self.maxRadius)
+                  }
               }
           }
           SWIFT_EOF
@@ -264,7 +291,7 @@ jobs:
                   reloadLbl.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
                   reloadLbl.text             = "RELOADING"
                   reloadLbl.textColor        = UIColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1)
-                  reloadLbl.font             = monoFont(14, bold: true)
+                  reloadLbl.font = monoFont(14, bold: true)
                   reloadLbl.textAlignment    = .right
                   reloadLbl.isHidden         = true
                   addSubview(reloadLbl)
@@ -323,25 +350,10 @@ jobs:
                   waveLbl.text      = String(format: "PHASE %02d", wave)
                   reloadLbl.isHidden = !isReloading
               }
-
-              func showMessage(_ text: String, color: UIColor = .white, duration: TimeInterval = 2.0) {
-                  msgLbl.text = text.uppercased()
-                  msgLbl.textColor = color
-                  msgLbl.alpha = 0
-                  msgLbl.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
-                  UIView.animate(withDuration: 0.25) {
-                      self.msgLbl.alpha = 1
-                      self.msgLbl.transform = .identity
-                  } completion: { _ in
-                      UIView.animate(withDuration: 0.4, delay: duration - 0.4) {
-                          self.msgLbl.alpha = 0
-                      }
-                  }
-              }
           }
           SWIFT_EOF
 
-      # ── EnemyNode (3D MONSTER MODEL ENGINE) ──────────────────────────────────
+      # ── EnemyNode ────────────────────────────────────────────────────────────
       - name: EnemyNode.swift
         run: |
           cat > SV3D/Sources/EnemyNode.swift << 'SWIFT_EOF'
@@ -355,7 +367,6 @@ jobs:
               var lastAttackTime: TimeInterval = 0
               private var monsterBaseNode: SCNNode!
               
-              // Spikes, Claws, and Joints for Procedural Monster Model
               private var leftClaw: SCNNode!
               private var rightClaw: SCNNode!
               private var lowerJaw: SCNNode!
@@ -390,7 +401,6 @@ jobs:
                   boneMat.diffuse.contents = UIColor(white: 0.80, alpha: 1)
                   boneMat.roughness.contents = 0.30
 
-                  // 1. Torso/Carapace Core
                   let torsoGeo = SCNSphere(radius: 0.45 * scaleF)
                   torsoGeo.segmentCount = 36
                   torsoGeo.materials = [organicMat]
@@ -398,7 +408,6 @@ jobs:
                   torsoNode.position = SCNVector3(0, 0.70 * scaleF, 0)
                   monsterBaseNode.addChildNode(torsoNode)
 
-                  // 2. Head & Mutated Gaping Jaw
                   let headGeo = SCNBox(width: 0.42 * scaleF, height: 0.38 * scaleF, length: 0.55 * scaleF, chamferRadius: 0.08)
                   headGeo.materials = [organicMat]
                   let headNode = SCNNode(geometry: headGeo)
@@ -411,7 +420,6 @@ jobs:
                   lowerJaw.position = SCNVector3(0, -0.18 * scaleF, -0.05 * scaleF)
                   headNode.addChildNode(lowerJaw)
 
-                  // 3. Glowing Threat Eyes
                   for side: Float in [-1, 1] {
                       let eyeGeo = SCNSphere(radius: 0.07 * scaleF)
                       let eyeMat = SCNMaterial()
@@ -425,7 +433,6 @@ jobs:
                       headNode.addChildNode(eye)
                   }
 
-                  // 4. Quadrupedal/Insectoid Armature Legs
                   let legGeo = SCNCylinder(radius: 0.07 * scaleF, height: 0.65 * scaleF)
                   legGeo.materials = [organicMat]
                   
@@ -441,7 +448,6 @@ jobs:
                   legB.eulerAngles = SCNVector3(0, 0, -0.4)
                   torsoNode.addChildNode(legB)
 
-                  // 5. Hardened Spines / Tail Spikes
                   for i in 0..<4 {
                       let spineGeo = SCNCone(topRadius: 0, bottomRadius: 0.06 * scaleF, height: 0.40 * scaleF)
                       spineGeo.materials = [boneMat]
@@ -501,7 +507,6 @@ jobs:
                   let dz   = target.z - position.z
                   let dist = sqrt(dx * dx + dz * dz)
                   
-                  // Procedural Animation System (Crawling Leg Movements)
                   pulseTime += dt * kind.speed * 3.5
                   let wave = sin(pulseTime)
                   legA.eulerAngles.x = wave * 0.45
@@ -531,7 +536,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── GameViewController (HUMAN MODEL ENGINE + JOYSTICK SEPARATION) ────────
+      # ── GameViewController (COMPREHENSIVE TOUCH ARMATURE FIX) ────────────────
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -543,13 +548,11 @@ jobs:
               private var scnView: SCNView!
               private var scene:   SCNScene!
 
-              // Main Nodes
               private var playerNode: SCNNode!
               private var playerBody: SCNNode!
               private var cameraArm:  SCNNode!
               private var cameraNode: SCNNode!
 
-              // Human Character 3D Model Joints Structure
               private var pelvisNode:   SCNNode!
               private var spineNode:    SCNNode!
               private var chestNode:    SCNNode!
@@ -562,7 +565,6 @@ jobs:
               private var rightArmNode: SCNNode!
               private var gunNode:      SCNNode!
               
-              // Animation parameters
               private var animationTime: Float = 0.0
               private var targetBodyAngle: Float = 0.0
               private var currentBodyAngle: Float = 0.0
@@ -572,7 +574,6 @@ jobs:
               private var currentRightShinX: Float = 0.0
               private var currentPelvisY: Float = 0.95
 
-              // Game variables
               private var health      : Float        = 100
               private var maxHealth   : Float        = 100
               private var ammo        : Int          = 30
@@ -591,16 +592,15 @@ jobs:
               private var lastShotTime: TimeInterval = 0
               private var shakeIntensity: Float = 0.0
 
-              // Separate UI Interactive Elements (Crucial fix for touch screening)
-              private var moveJoystick: JoystickView!
-              private var aimJoystick:  JoystickView!
-              private var hudView:      HUDOverlay!
-              private var isShooting:   Bool    = false
-              private var cameraYaw:    Float   = 0
-              private let cameraPitch:  Float   = -0.25
-              private weak var aimTouch: UITouch?
-              private var lastAimPt:    CGPoint = .zero
-
+              // Dual Joystick Infrastructure Setup
+              private var leftStick:  VirtualJoystick!
+              private var rightStick: VirtualJoystick!
+              private var hudView:    HUDOverlay!
+              private var isShooting: Bool    = false
+              private var cameraYaw:  Float   = 0
+              private let cameraPitch: Float   = -0.25
+              
+              private var rightStickLastPoint: CGPoint = .zero
               private let mapHalf: Float = 35.0
 
               override func viewDidLoad() {
@@ -611,8 +611,8 @@ jobs:
                   setupCamera()
                   setupAdvancedLighting()
                   
-                  // Setup Hierarchy Ordering: Joysticks MUST be added AFTER/ABOVE the interactive containers
-                  setupJoysticks()
+                  // View layout ordering resolution: UI Containers strictly declared after pipeline engines
+                  setupDualJoysticks()
                   setupHUD()
                   
                   waveTimer = 3.0
@@ -626,7 +626,7 @@ jobs:
                   scnView = SCNView(frame: view.bounds)
                   scnView.autoresizingMask        = [.flexibleWidth, .flexibleHeight]
                   scnView.backgroundColor         = UIColor.black
-                  scnView.antialiasingMode         = .multisampling4X
+                  scnView.antialiasingMode        = .multisampling4X
                   scnView.preferredFramesPerSecond = 60
                   view.addSubview(scnView)
 
@@ -639,12 +639,6 @@ jobs:
               }
 
               private func buildWorld() {
-                  buildPBRGround()
-                  buildMonolithicBorders()
-                  buildHighResStructures()
-              }
-
-              private func buildPBRGround() {
                   let floorGeo = SCNFloor()
                   let mat = SCNMaterial()
                   mat.lightingModel = .physicallyBased
@@ -658,9 +652,7 @@ jobs:
                   node.physicsBody?.categoryBitMask  = PhysicsMask.ground
                   node.physicsBody?.collisionBitMask = PhysicsMask.player | PhysicsMask.enemy
                   scene.rootNode.addChildNode(node)
-              }
 
-              private func buildMonolithicBorders() {
                   let h: Float = 12, t: Float = 2, s = mapHalf * 2
                   let walls: [(Float, Float, Float, Float, Float, Float)] = [
                       (0, h/2, -(mapHalf+t/2), s+t*2, h, t),
@@ -670,41 +662,16 @@ jobs:
                   ]
                   for (x, y, z, w, hh, d) in walls {
                       let geo = SCNBox(width: CGFloat(w), height: CGFloat(hh), length: CGFloat(d), chamferRadius: 0.1)
-                      let mat = SCNMaterial()
-                      mat.lightingModel = .physicallyBased
-                      mat.diffuse.contents = UIColor(white: 0.04, alpha: 1)
-                      mat.roughness.contents = 0.85
-                      geo.materials = [mat]
-                      let node = SCNNode(geometry: geo)
-                      node.position = SCNVector3(x, y, z)
-                      node.physicsBody = SCNPhysicsBody(type: .static, shape: nil)
-                      node.physicsBody?.categoryBitMask = PhysicsMask.wall
-                      scene.rootNode.addChildNode(node)
-                  }
-              }
-
-              private func buildHighResStructures() {
-                  let locations: [(Float, Float, Float, Float)] = [
-                      (-15, -15, 6, 10), (15, -15, 5, 8), (-10, 15, 7, 12),
-                      (18, 12, 6, 9), (-20, 0, 5, 11), (0, 20, 8, 14)
-                  ]
-                  for (x, z, w, h) in locations {
-                      let geo = SCNBox(width: CGFloat(w), height: CGFloat(h), length: CGFloat(w), chamferRadius: 0.2)
-                      geo.widthSegmentCount = 8
-                      geo.heightSegmentCount = 16
-                      
-                      let mat = SCNMaterial()
-                      mat.lightingModel = .physicallyBased
-                      mat.diffuse.contents = UIColor(white: 0.08, alpha: 1)
-                      mat.roughness.contents = 0.40
-                      mat.metalness.contents = 0.30
-                      geo.materials = [mat]
-                      
-                      let node = SCNNode(geometry: geo)
-                      node.position = SCNVector3(x, h/2, z)
-                      node.physicsBody = SCNPhysicsBody(type: .static, shape: nil)
-                      node.physicsBody?.categoryBitMask = PhysicsMask.wall
-                      scene.rootNode.addChildNode(node)
+                      let wMat = SCNMaterial()
+                      wMat.lightingModel = .physicallyBased
+                      wMat.diffuse.contents = UIColor(white: 0.04, alpha: 1)
+                      wMat.roughness.contents = 0.85
+                      geo.materials = [wMat]
+                      let wNode = SCNNode(geometry: geo)
+                      wNode.position = SCNVector3(x, y, z)
+                      wNode.physicsBody = SCNPhysicsBody(type: .static, shape: nil)
+                      wNode.physicsBody?.categoryBitMask = PhysicsMask.wall
+                      scene.rootNode.addChildNode(wNode)
                   }
               }
 
@@ -715,10 +682,9 @@ jobs:
                   playerBody = SCNNode()
                   playerNode.addChildNode(playerBody)
 
-                  // Human Mesh PBR Fabrics & Skin Materials
                   let tacticalSuit = SCNMaterial()
                   tacticalSuit.lightingModel = .physicallyBased
-                  tacticalSuit.diffuse.contents = UIColor(white: 0.14, alpha: 1) // Dark urban tactical grey
+                  tacticalSuit.diffuse.contents = UIColor(white: 0.14, alpha: 1)
                   tacticalSuit.roughness.contents = 0.65
                   tacticalSuit.metalness.contents = 0.10
 
@@ -730,35 +696,31 @@ jobs:
 
                   let skinMaterial = SCNMaterial()
                   skinMaterial.lightingModel = .physicallyBased
-                  skinMaterial.diffuse.contents = UIColor(red: 0.82, green: 0.62, blue: 0.51, alpha: 1) // High-res flesh tone
+                  skinMaterial.diffuse.contents = UIColor(red: 0.82, green: 0.62, blue: 0.51, alpha: 1)
                   skinMaterial.roughness.contents = 0.50
 
                   let visorMat = SCNMaterial()
                   visorMat.lightingModel = .constant
                   visorMat.diffuse.contents = UIColor(red: 0.0, green: 0.9, blue: 0.5, alpha: 1)
 
-                  // 1. Pelvis Base Joint
                   let pelvisGeo = SCNBox(width: 0.34, height: 0.15, length: 0.26, chamferRadius: 0.04)
                   pelvisGeo.materials = [tacticalSuit]
                   pelvisNode = SCNNode(geometry: pelvisGeo)
                   pelvisNode.position = SCNVector3(0, 0.95, 0)
                   playerBody.addChildNode(pelvisNode)
 
-                  // 2. Spine Column
                   let spineGeo = SCNCylinder(radius: 0.07, height: 0.32)
                   spineGeo.materials = [tacticalSuit]
                   spineNode = SCNNode(geometry: spineGeo)
                   spineNode.position = SCNVector3(0, 0.20, 0)
                   pelvisNode.addChildNode(spineNode)
 
-                  // 3. Human Ribcage / Chest Armor
                   let chestGeo = SCNBox(width: 0.48, height: 0.40, length: 0.32, chamferRadius: 0.06)
                   chestGeo.materials = [armorPlates]
                   chestNode = SCNNode(geometry: chestGeo)
                   chestNode.position = SCNVector3(0, 0.18, 0)
                   spineNode.addChildNode(chestNode)
 
-                  // 4. Detailed Human Head Node
                   let headGeo = SCNSphere(radius: 0.13)
                   headGeo.segmentCount = 32
                   headGeo.materials = [skinMaterial]
@@ -766,7 +728,6 @@ jobs:
                   headNode.position = SCNVector3(0, 0.32, 0)
                   chestNode.addChildNode(headNode)
                   
-                  // Tactical Combat Helmet overlay
                   let helmetGeo = SCNCapsule(capRadius: 0.14, height: 0.16)
                   helmetGeo.materials = [armorPlates]
                   let helmet = SCNNode(geometry: helmetGeo)
@@ -779,7 +740,6 @@ jobs:
                   visor.position = SCNVector3(0, 0.02, -0.12)
                   headNode.addChildNode(visor)
 
-                  // 5. Human Lower Extremities (Legs + Shins)
                   let thighGeo = SCNCylinder(radius: 0.08, height: 0.42)
                   thighGeo.materials = [tacticalSuit]
                   let shinGeo = SCNCylinder(radius: 0.06, height: 0.44)
@@ -805,7 +765,6 @@ jobs:
                   rightShin.position = SCNVector3(0, -0.40, 0)
                   rightThigh.addChildNode(rightShin)
 
-                  // 6. Human Arms & Tactical Weapon Mounting
                   let armGeo = SCNCylinder(radius: 0.06, height: 0.46)
                   armGeo.materials = [tacticalSuit]
 
@@ -860,7 +819,6 @@ jobs:
 
               private func setupAdvancedLighting() {
                   scnView.autoenablesDefaultLighting = false
-                  
                   let keyLight = SCNLight()
                   keyLight.type = .directional
                   keyLight.color = UIColor(red: 0.65, green: 0.70, blue: 0.90, alpha: 1)
@@ -883,47 +841,50 @@ jobs:
                   scene.rootNode.addChildNode(fillNode)
               }
 
-              private func setupJoysticks() {
-                  let jR = view.bounds.height * 0.13
+              private func setupDualJoysticks() {
+                  let stickRadius = view.bounds.height * 0.14
                   
-                  moveJoystick = JoystickView(radius: jR)
-                  moveJoystick.center = CGPoint(x: jR + 40, y: view.bounds.height - jR - 40)
-                  view.addSubview(moveJoystick)
+                  // Left Engine (Locomotion Movement Matrix)
+                  leftStick = VirtualJoystick(radius: stickRadius)
+                  leftStick.center = CGPoint(x: stickRadius + 50, y: view.bounds.height - stickRadius - 50)
+                  view.addSubview(leftStick)
 
-                  aimJoystick = JoystickView(radius: jR)
-                  aimJoystick.center = CGPoint(x: view.bounds.width - jR - 160, y: view.bounds.height - jR - 40)
-                  view.addSubview(aimJoystick)
+                  // Right Engine (PS5 Camera Look Control Track)
+                  rightStick = VirtualJoystick(radius: stickRadius)
+                  rightStick.center = CGPoint(x: view.bounds.width - stickRadius - 180, y: view.bounds.height - stickRadius - 50)
+                  view.addSubview(rightStick)
               }
 
               private func setupHUD() {
                   hudView = HUDOverlay(frame: view.bounds)
                   hudView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                   
-                  // Crucial fix: Let events pass to child components under overlay tracking bounds
+                  // Non-blocking interaction layer hierarchy parsing
                   hudView.isUserInteractionEnabled = false 
                   view.addSubview(hudView)
                   
-                  hudView.shootBtn.addTarget(self, action: #selector(shootDown), for: .touchDown)
-                  hudView.shootBtn.addTarget(self, action: #selector(shootUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+                  hudView.shootBtn.addTarget(self, action: #selector(triggerWeaponFire), for: .touchDown)
+                  hudView.shootBtn.addTarget(self, action: #selector(ceaseWeaponFire), for: [.touchUpInside, .touchUpOutside, .touchCancel])
               }
 
-              @objc private func shootDown() { isShooting = true  }
-              @objc private func shootUp()   { isShooting = false }
+              @objc private func triggerWeaponFire() { isShooting = true  }
+              @objc private func ceaseWeaponFire()   { isShooting = false }
 
+              // Centralized Unified Multi-Touch Tracking Core (Ensures joysticks respond simultaneously)
               override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
                       let pt = t.location(in: view)
                       
-                      // Check shoot button first since it overlapping layout frames
-                      let convertedPt = hudView.shootBtn.convert(pt, from: view)
-                      if hudView.shootBtn.point(inside: convertedPt, with: event) { continue }
+                      let shootArea = hudView.shootBtn.convert(pt, from: view)
+                      if hudView.shootBtn.point(inside: shootArea, with: event) { continue }
 
-                      if moveJoystick.frame.contains(pt) && moveJoystick.trackingTouch == nil {
-                          moveJoystick.trackingTouch = t
-                      } else if aimJoystick.frame.contains(pt) && aimJoystick.trackingTouch == nil {
-                          aimJoystick.trackingTouch = t
-                          aimTouch  = t
-                          lastAimPt = pt
+                      if leftStick.frame.contains(pt) && leftStick.currentTouch == nil {
+                          leftStick.currentTouch = t
+                          leftStick.updateTrackPosition(t, within: view)
+                      } else if rightStick.frame.contains(pt) && rightStick.currentTouch == nil {
+                          rightStick.currentTouch = t
+                          rightStickLastPoint = pt
+                          rightStick.updateTrackPosition(t, within: view)
                       }
                   }
               }
@@ -931,20 +892,23 @@ jobs:
               override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
                       let pt = t.location(in: view)
-                      if t === moveJoystick.trackingTouch {
-                          moveJoystick.moveTouch(t, in: view)
-                      } else if t === aimJoystick.trackingTouch {
-                          aimJoystick.moveTouch(t, in: view)
-                          cameraYaw -= Float(pt.x - lastAimPt.x) * 0.0065
-                          lastAimPt  = pt
+                      if t === leftStick.currentTouch {
+                          leftStick.updateTrackPosition(t, within: view)
+                      } else if t === rightStick.currentTouch {
+                          rightStick.updateTrackPosition(t, within: view)
+                          
+                          // Convert right vector input directly into look rotational yaw mechanics
+                          let deltaX = Float(pt.x - rightStickLastPoint.x)
+                          cameraYaw -= deltaX * 0.0075
+                          rightStickLastPoint = pt
                       }
                   }
               }
 
               override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
-                      if t === moveJoystick.trackingTouch { moveJoystick.reset() }
-                      if t === aimJoystick.trackingTouch  { aimJoystick.reset(); aimTouch = nil }
+                      if t === leftStick.currentTouch { leftStick.clearInput() }
+                      if t === rightStick.currentTouch { rightStick.clearInput() }
                   }
               }
 
@@ -981,7 +945,7 @@ jobs:
               }
 
               private func moveAndAnimateHumanCharacter(dt: Float) {
-                  let mv  = moveJoystick.velocity
+                  let mv  = leftStick.inputVector
                   let len = sqrt(mv.x * mv.x + mv.y * mv.y)
                   let lerpSpeed: Float = dt * 12.0
 
@@ -1175,7 +1139,6 @@ jobs:
                       let enemy = (mA == PhysicsMask.enemy ? nA : nB) as? EnemyNode
                       
                       createSparksAt(position: bullet.position)
-                      
                       bullet.removeFromParentNode()
                       enemy?.takeDamage(35)
                       if let e = enemy, !e.isAlive { score += e.kind.scoreValue }
@@ -1317,7 +1280,6 @@ jobs:
                           <viewController id="vc1" sceneMemberID="viewController">
                               <view key="view" contentMode="scaleToFill" id="vw1">
                                   <rect key="frame" x="0.0" y="0.0" width="430" height="932"/>
-                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                   <color key="backgroundColor" white="0.02" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                               </view>
                           </viewController>
@@ -1396,6 +1358,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ShadowVillage3D-HumanAndMonsters
+          name: ShadowVillage3D-PS5Joysticks
           path: ShadowVillage3D.ipa
           retention-days: 14
