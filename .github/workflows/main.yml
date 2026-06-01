@@ -475,7 +475,6 @@ jobs:
                   position.x += dx / dist * spd
                   position.z += dz / dist * spd
                   
-                  // Smooth look-at logic for enemies
                   let targetAngle = atan2(dx, dz)
                   let currentAngle = eulerAngles.y
                   var diff = targetAngle - currentAngle
@@ -496,7 +495,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── GameViewController (AAA HIGH RESOLUTION RIG & SMOOTH ANIMATION) ──────
+      # ── GameViewController ───────────────────────────────────────────────────
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -513,7 +512,6 @@ jobs:
               private var cameraArm:  SCNNode!
               private var cameraNode: SCNNode!
 
-              // AAA Procedural Rigging Node Hierarchy
               private var pelvisNode:   SCNNode!
               private var spineNode:    SCNNode!
               private var chestNode:    SCNNode!
@@ -530,7 +528,6 @@ jobs:
               private var targetBodyAngle: Float = 0.0
               private var currentBodyAngle: Float = 0.0
 
-              // Lerp buffer states for smooth bone transitions
               private var currentLeftThighX: Float = 0.0
               private var currentRightThighX: Float = 0.0
               private var currentLeftShinX: Float = 0.0
@@ -676,7 +673,6 @@ jobs:
                   playerBody = SCNNode()
                   playerNode.addChildNode(playerBody)
 
-                  // AAA Tactical Materials
                   let carbonSuit = SCNMaterial()
                   carbonSuit.lightingModel = .physicallyBased
                   carbonSuit.diffuse.contents = UIColor(white: 0.11, alpha: 1)
@@ -699,14 +695,12 @@ jobs:
                   energyCoreMat.diffuse.contents = UIColor.orange
                   energyCoreMat.emission.contents = UIColor.orange
 
-                  // Root Pelvis Node
                   let pelvisGeo = SCNBox(width: 0.36, height: 0.16, length: 0.28, chamferRadius: 0.05)
                   pelvisGeo.materials = [titaniumPlates]
                   pelvisNode = SCNNode(geometry: pelvisGeo)
                   pelvisNode.position = SCNVector3(0, 0.95, 0)
                   playerBody.addChildNode(pelvisNode)
 
-                  // Spine & Segmented Chest Torso
                   let spineGeo = SCNCylinder(radius: 0.08, height: 0.35)
                   spineGeo.materials = [carbonSuit]
                   spineNode = SCNNode(geometry: spineGeo)
@@ -719,7 +713,6 @@ jobs:
                   chestNode.position = SCNVector3(0, 0.18, 0)
                   spineNode.addChildNode(chestNode)
 
-                  // Chest Tech Details (Energy Core)
                   let coreGeo = SCNCylinder(radius: 0.05, height: 0.04)
                   coreGeo.materials = [energyCoreMat]
                   let coreNode = SCNNode(geometry: coreGeo)
@@ -727,7 +720,6 @@ jobs:
                   coreNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
                   chestNode.addChildNode(coreNode)
 
-                  // Tactical Cyber Head & Visor
                   let headGeo = SCNBox(width: 0.24, height: 0.25, length: 0.24, chamferRadius: 0.04)
                   headGeo.materials = [carbonSuit]
                   headNode = SCNNode(geometry: headGeo)
@@ -740,7 +732,6 @@ jobs:
                   visor.position = SCNVector3(0, 0.04, -0.11)
                   headNode.addChildNode(visor)
 
-                  // Lower Limb Rig Architecture
                   let thighGeo = SCNCylinder(radius: 0.09, height: 0.44)
                   thighGeo.materials = [carbonSuit]
                   let shinGeo = SCNCylinder(radius: 0.07, height: 0.46)
@@ -766,7 +757,6 @@ jobs:
                   rightShin.position = SCNVector3(0, -0.42, 0)
                   rightThigh.addChildNode(rightShin)
 
-                  // Upper Limb Rig Architecture (Arms & Weaponry)
                   let armGeo = SCNCylinder(radius: 0.07, height: 0.50)
                   armGeo.materials = [carbonSuit]
 
@@ -791,7 +781,6 @@ jobs:
                   rightPad.position = SCNVector3(0.04, 0.22, 0)
                   rightArmNode.addChildNode(rightPad)
 
-                  // Advanced Weapon Mesh Integration
                   let gunGeo = SCNBox(width: 0.07, height: 0.11, length: 0.74, chamferRadius: 0.02)
                   let gunMat = SCNMaterial()
                   gunMat.lightingModel = .physicallyBased
@@ -805,7 +794,6 @@ jobs:
                   gunNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
                   rightArmNode.addChildNode(gunNode)
 
-                  // Under-barrel Light / Laser Attachment
                   let laserGeo = SCNCylinder(radius: 0.015, height: 0.15)
                   laserGeo.materials = [neonVisor]
                   let laserNode = SCNNode(geometry: laserGeo)
@@ -813,7 +801,6 @@ jobs:
                   laserNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
                   gunNode.addChildNode(laserNode)
 
-                  // Physics Capsule Mapping
                   let shape = SCNPhysicsShape(geometry: SCNCapsule(capRadius: 0.44, height: 1.80), options: nil)
                   let body  = SCNPhysicsBody(type: .kinematic, shape: shape)
                   body.categoryBitMask    = PhysicsMask.player
@@ -956,12 +943,9 @@ jobs:
               private func moveAndAnimatePlayer(dt: Float) {
                   let mv  = moveJoystick.velocity
                   let len = sqrt(mv.x * mv.x + mv.y * mv.y)
-
-                  // Lerp tuning constants for heavy AAA physical presence
                   let lerpSpeed: Float = dt * 11.5
 
                   guard len > 0.1 else {
-                      // AAA Procedural Breathing Idle Loop
                       animationTime += dt * 2.2
                       let breatheFactor = sin(animationTime)
                       
@@ -985,7 +969,6 @@ jobs:
                       leftArmNode.eulerAngles.x = 0; leftArmNode.eulerAngles.z = 0.05
                       rightArmNode.eulerAngles.x = -0.12; rightArmNode.eulerAngles.y = -0.05
                       
-                      // Smoothly blend rotational velocity down to rest configuration
                       let diff = targetBodyAngle - currentBodyAngle
                       currentBodyAngle += diff * lerpSpeed
                       playerBody.eulerAngles.y = currentBodyAngle
@@ -1009,7 +992,6 @@ jobs:
                   finalPos.z = max(-boundary, min(boundary, finalPos.z))
                   playerNode.simdPosition = finalPos
 
-                  // AAA Angular Interpolation (Slerp-like angle handling)
                   targetBodyAngle = atan2(dir.x, dir.z)
                   var angleDiff = targetBodyAngle - currentBodyAngle
                   while angleDiff < -.pi { angleDiff += .pi * 2 }
@@ -1017,7 +999,6 @@ jobs:
                   currentBodyAngle += angleDiff * lerpSpeed
                   playerBody.eulerAngles.y = currentBodyAngle
 
-                  // AAA Engine Procedural Motion Engine Matching Travel Speed
                   animationTime += dt * matrixFactor * 14.5
                   let primaryOscillation = sin(animationTime)
                   let secondaryOscillation = cos(animationTime)
@@ -1028,7 +1009,6 @@ jobs:
                   
                   chestNode.eulerAngles.y = primaryOscillation * 0.05
 
-                  // Distribute target joint goals into interpolation buffers
                   let targetLT = primaryOscillation * 0.62
                   let targetRT = -primaryOscillation * 0.62
                   let targetLS = max(0, -secondaryOscillation * 0.55)
@@ -1222,43 +1202,6 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── project.yml ───────────────────────────────────────────────────────────
-      - name: project.yml
-        run: |
-          cat > SV3D/project.yml << 'YAML_EOF'
-          name: ShadowVillage3D
-          options:
-            bundleIdPrefix: com.shadowvillage3d
-            createIntermediateGroups: true
-            deploymentTarget:
-              iOS: "16.0"
-          settings:
-            base:
-              SWIFT_VERSION: "5.9"
-              DEVELOPMENT_TEAM: ""
-              PRODUCT_BUNDLE_IDENTIFIER: com.shadowvillage3d.game
-              TARGETED_DEVICE_FAMILY: "1"
-              IPHONEOS_DEPLOYMENT_TARGET: "16.0"
-              CODE_SIGN_IDENTITY: ""
-              CODE_SIGNING_REQUIRED: "NO"
-              CODE_SIGNING_ALLOWED: "NO"
-              ENABLE_BITCODE: "NO"
-              DEBUG_INFORMATION_FORMAT: dwarf
-          targets:
-            ShadowVillage3D:
-              type: application
-              platform: iOS
-              deploymentTarget: "16.0"
-              sources:
-                - path: Sources
-              resources:
-                - path: Resources
-              frameworks:
-                - SDK: SceneKit.framework
-                - SDK: UIKit.framework
-                - SDK: GameplayKit.framework
-          YAML_EOF
-
       # ── Info.plist ────────────────────────────────────────────────────────────
       - name: Info.plist
         run: |
@@ -1289,6 +1232,45 @@ jobs:
           </dict>
           </plist>
           PLIST_EOF
+
+      # ── project.yml (FIXED TARGET PLISt CONFIGURATION) ────────────────────────
+      - name: project.yml
+        run: |
+          cat > SV3D/project.yml << 'YAML_EOF'
+          name: ShadowVillage3D
+          options:
+            bundleIdPrefix: com.shadowvillage3d
+            createIntermediateGroups: true
+            deploymentTarget:
+              iOS: "16.0"
+          settings:
+            base:
+              SWIFT_VERSION: "5.9"
+              DEVELOPMENT_TEAM: ""
+              PRODUCT_BUNDLE_IDENTIFIER: com.shadowvillage3d.game
+              TARGETED_DEVICE_FAMILY: "1"
+              IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+              CODE_SIGN_IDENTITY: ""
+              CODE_SIGNING_REQUIRED: "NO"
+              CODE_SIGNING_ALLOWED: "NO"
+              ENABLE_BITCODE: "NO"
+              DEBUG_INFORMATION_FORMAT: dwarf
+          targets:
+            ShadowVillage3D:
+              type: application
+              platform: iOS
+              deploymentTarget: "16.0"
+              info:
+                path: Resources/Info.plist
+              sources:
+                - path: Sources
+              resources:
+                - path: Resources
+              frameworks:
+                - SDK: SceneKit.framework
+                - SDK: UIKit.framework
+                - SDK: GameplayKit.framework
+          YAML_EOF
 
       # ── LaunchScreen ──────────────────────────────────────────────────────────
       - name: LaunchScreen.storyboard
