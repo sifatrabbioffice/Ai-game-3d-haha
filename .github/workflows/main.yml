@@ -30,21 +30,32 @@ jobs:
       # ২. ডিপেনডেন্সি, OpenGL::GL টার্গেট এবং iOS GLES3 হেডার পাথ ম্যাপ করা
       - name: Patch Dependencies Path
         run: |
-          # বুস্ট লাইব্রেরি ফিক্স
-          sed -i '' 's/find_package(Boost.*COMPONENTS.*/find_package(Boost REQUIRED)/g' CMakeLists.txt
+          # ডাইনামিকালি মেইন CMakeLists.txt খুঁজে বের করা
+          MAIN_CMAKE=$(find . -name "CMakeLists.txt" -exec grep -l "find_package" {} + | head -n 1)
+          if [ -z "$MAIN_CMAKE" ]; then
+            echo "Error: No CMakeLists.txt containing find_package found!"
+            exit 1
+          fi
+          echo "Found main CMakeLists.txt at: $MAIN_CMAKE"
+          
+          # মেইন ডিরেক্টরির অ্যাবসোলিউট পাথ পরবর্তী স্টেপের জন্য সেভ করা
+          MAIN_DIR=$(pwd)/$(dirname "$MAIN_CMAKE")
+          echo "MAIN_DIR=$MAIN_DIR" >> $GITHUB_ENV
+
+          # বুস্ট লাইব্রেরি ফিক্স (খুঁজে পাওয়া মেইন ফাইলে অ্যাপ্লাই করা হচ্ছে)
+          sed -i '' 's/find_package(Boost.*COMPONENTS.*/find_package(Boost REQUIRED)/g' "$MAIN_CMAKE"
           sed -i '' '/find_package(Boost REQUIRED)/a\
           set(Boost_INCLUDE_DIRS /opt/homebrew/include)\
           set(Boost_LIBRARY_DIRS /opt/homebrew/lib)\
           include_directories(${Boost_INCLUDE_DIRS})\
           link_directories(${Boost_LIBRARY_DIRS})\
-          ' CMakeLists.txt
+          ' "$MAIN_CMAKE"
           
           find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::program_options/boost_program_options/g' {} +
           find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::system/boost_system/g' {} +
           find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::filesystem/boost_filesystem/g' {} +
 
           # ওপেনজিএল এবং মডার্ন OpenGL::GL ইন্টারফেস ফিক্স
-          # এখানে অতিরিক্ত হিসেবে iOS SDK-এর ভেতরের অরিজিনাল OpenGLES হেডার পাথ ইন্টারফেসে যুক্ত করা হয়েছে
           sed -i '' '/find_package(OpenGL REQUIRED)/c\
           set(OPENGL_FOUND TRUE)\
           set(OPENGL_INCLUDE_DIR /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk/System/Library/Frameworks/OpenGLES.framework/Headers)\
@@ -53,9 +64,9 @@ jobs:
             add_library(OpenGL::GL INTERFACE IMPORTED)\
             set_target_properties(OpenGL::GL PROPERTIES INTERFACE_LINK_LIBRARIES "-framework OpenGLES")\
           endif()\
-          ' CMakeLists.txt
+          ' "$MAIN_CMAKE"
 
-          # imgui এর জন্য GLES3/gl3.h এরর ফিক্স (সরাসরি সোর্স কোড লেভেলে অ্যাপল ফ্রেমওয়ার্ক পাথ ইনজেক্ট করা)
+          # imgui এর জন্য GLES3/gl3.h এরর ফিক্স
           find . -name "imgui_impl_opengl3.cpp" -exec sed -i '' 's/#include <GLES3\/gl3.h>/#include <OpenGLES\/ES3\/gl.h>/g' {} +
 
       # ৩. ক্রস-কম্পাইল কনফিগারেশন (iOS SDK এবং হেডার ইনক্লুড ডিরেক্টরি সহ)
@@ -63,7 +74,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake .. -G Ninja \
+          cmake "${{ env.MAIN_DIR }}" -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DCMAKE_OSX_SYSROOT=iphoneos \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
