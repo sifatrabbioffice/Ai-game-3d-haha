@@ -20,8 +20,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0 # সম্পূর্ণ হিস্ট্রি এবং সাবমডিউল ট্র্যাকিং নিশ্চিত করার জন্য
 
-      # ১. প্রয়োজনীয় সব টুলস ইনস্টল করা
+      # ১. প্রয়োজনীয় সবツールস ইনস্টল করা
       - name: Install Dependencies
         run: |
           brew update
@@ -30,10 +31,10 @@ jobs:
       # ২. ডিপেনডেন্সি, OpenGL::GL টার্গেট এবং iOS GLES3 হেডার পাথ ম্যাপ করা
       - name: Patch Dependencies Path
         run: |
-          # ডাইনামিকালি মেইন CMakeLists.txt খুঁজে বের করা
-          MAIN_CMAKE=$(find . -name "CMakeLists.txt" -exec grep -l "find_package" {} + | head -n 1)
+          # রুট ডিরেক্টরি থেকে প্রথম CMakeLists.txt ফাইলটি খুঁজে বের করা
+          MAIN_CMAKE=$(find . -name "CMakeLists.txt" -type f | head -n 1)
           if [ -z "$MAIN_CMAKE" ]; then
-            echo "Error: No CMakeLists.txt containing find_package found!"
+            echo "Error: No CMakeLists.txt found in the workspace!"
             exit 1
           fi
           echo "Found main CMakeLists.txt at: $MAIN_CMAKE"
@@ -43,17 +44,17 @@ jobs:
           echo "MAIN_DIR=$MAIN_DIR" >> $GITHUB_ENV
 
           # বুস্ট লাইব্রেরি ফিক্স (খুঁজে পাওয়া মেইন ফাইলে অ্যাপ্লাই করা হচ্ছে)
-          sed -i '' 's/find_package(Boost.*COMPONENTS.*/find_package(Boost REQUIRED)/g' "$MAIN_CMAKE"
+          sed -i '' 's/find_package(Boost.*COMPONENTS.*/find_package(Boost REQUIRED)/g' "$MAIN_CMAKE" || true
           sed -i '' '/find_package(Boost REQUIRED)/a\
           set(Boost_INCLUDE_DIRS /opt/homebrew/include)\
           set(Boost_LIBRARY_DIRS /opt/homebrew/lib)\
           include_directories(${Boost_INCLUDE_DIRS})\
           link_directories(${Boost_LIBRARY_DIRS})\
-          ' "$MAIN_CMAKE"
+          ' "$MAIN_CMAKE" || true
           
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::program_options/boost_program_options/g' {} +
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::system/boost_system/g' {} +
-          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::filesystem/boost_filesystem/g' {} +
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::program_options/boost_program_options/g' {} + || true
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::system/boost_system/g' {} + || true
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::filesystem/boost_filesystem/g' {} + || true
 
           # ওপেনজিএল এবং মডার্ন OpenGL::GL ইন্টারফেস ফিক্স
           sed -i '' '/find_package(OpenGL REQUIRED)/c\
@@ -64,10 +65,10 @@ jobs:
             add_library(OpenGL::GL INTERFACE IMPORTED)\
             set_target_properties(OpenGL::GL PROPERTIES INTERFACE_LINK_LIBRARIES "-framework OpenGLES")\
           endif()\
-          ' "$MAIN_CMAKE"
+          ' "$MAIN_CMAKE" || true
 
           # imgui এর জন্য GLES3/gl3.h এরর ফিক্স
-          find . -name "imgui_impl_opengl3.cpp" -exec sed -i '' 's/#include <GLES3\/gl3.h>/#include <OpenGLES\/ES3\/gl.h>/g' {} +
+          find . -name "imgui_impl_opengl3.cpp" -exec sed -i '' 's/#include <GLES3\/gl3.h>/#include <OpenGLES\/ES3\/gl.h>/g' {} + || true
 
       # ৩. ক্রস-কম্পাইল কনফিগারেশন (iOS SDK এবং হেডার ইনক্লুড ডিরেক্টরি সহ)
       - name: Configure CMake
