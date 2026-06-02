@@ -132,45 +132,64 @@ jobs:
       # ৫. আউটপুট বাইনারিকে আইফোনের জন্য সাইডলোডযোগ্য .ipa ফাইলে রূপান্তর
       - name: Package Package into Sideloadable .ipa
         run: |
-          mkdir -p build/Payload/rwgame.app
+          mkdir -p build/Payload
           
-          BIN_PATH=$(find build -name "rwgame" -type f | head -n 1)
-          echo "Found Binary at: $BIN_PATH"
+          # প্রথমে কোনো .app ডিরেক্টরি আছে কিনা তা খুঁজি (iOS অ্যাপ বান্ডেল)
+          APP_PATH=$(find build -name "*.app" -type d | head -n 1)
           
-          if [ -z "$BIN_PATH" ]; then
-            echo "Error: Build output 'rwgame' not found!"
-            exit 1
+          if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
+            echo "Found compiled App Bundle at: $APP_PATH"
+            cp -r "$APP_PATH" build/Payload/
+          else
+            echo "No .app bundle directory found. Searching for raw executable binary..."
+            # যদি .app না থাকে, তবে এক্সিকিউটেবল ফাইলটি খুঁজি
+            BIN_PATH=$(find build -name "rwgame" -type f | head -n 1)
+            
+            # যদি নির্দিষ্ট নামে না পাওয়া যায়, তবে build ফোল্ডারের যেকোনো এক্সিকিউটেবল খুঁজি
+            if [ -z "$BIN_PATH" ]; then
+              BIN_PATH=$(find build -type f -perm +111 -not -name "*.dylib" -not -name "*.a" -not -name "*.cmake" | head -n 1)
+            fi
+            
+            echo "Found Binary at: $BIN_PATH"
+            
+            if [ -z "$BIN_PATH" ]; then
+              echo "=== Listing build directory contents to debug ==="
+              find build -maxdepth 4 || true
+              echo "Error: Build output 'rwgame' or any executable binary not found!"
+              exit 1
+            fi
+            
+            mkdir -p build/Payload/rwgame.app
+            cp "$BIN_PATH" build/Payload/rwgame.app/rwgame
+            
+            cat << 'EOF' > build/Payload/rwgame.app/Info.plist
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.txt">
+            <plist version="1.0">
+            <dict>
+                <key>CFBundleExecutable</key>
+                <string>rwgame</string>
+                <key>CFBundleIdentifier</key>
+                <string>org.openrw.rwgame</string>
+                <key>CFBundleName</key>
+                <string>OpenRW</string>
+                <key>CFBundlePackageType</key>
+                <string>APPL</string>
+                <key>CFBundleShortVersionString</key>
+                <string>1.0</string>
+                <key>CFBundleVersion</key>
+                <string>1</string>
+                <key>LSRequiresIPhoneOS</key>
+                <true/>
+                <key>UIDeviceFamily</key>
+                <array>
+                    <integer>1</integer>
+                    <integer>2</integer>
+                </array>
+            </dict>
+            </plist>
+            EOF
           fi
-          
-          cp "$BIN_PATH" build/Payload/rwgame.app/rwgame
-          
-          cat << 'EOF' > build/Payload/rwgame.app/Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.txt">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>rwgame</string>
-              <key>CFBundleIdentifier</key>
-              <string>org.openrw.rwgame</string>
-              <key>CFBundleName</key>
-              <string>OpenRW</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>UIDeviceFamily</key>
-              <array>
-                  <integer>1</integer>
-                  <integer>2</integer>
-              </array>
-          </dict>
-          </plist>
-          EOF
           
           cd build
           zip -r openrw-ios-sideload.ipa Payload/
