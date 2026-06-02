@@ -1,350 +1,135 @@
-name: 🎮 Shadow Village 3D – Realistic Human & Active PS5 Touch UI Matrix
+name: Build iOS IPA (Sideloadable)
 
 on:
   push:
-    branches: [main]
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
+env:
+  BUILD_TYPE: Release
+
 jobs:
-  build:
-    name: Build Ultra-Realistic Human Operator Native IPA
-    runs-on: macos-14
+  ios-build:
+    name: iOS IPA Build
+    runs-on: macos-latest
+
     steps:
-
-      - name: Checkout Code Architecture
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Configure Xcode Environment
+      # ১. প্রয়োজনীয় সব টুলস ইনস্টল করা
+      - name: Install Dependencies
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
-          xcodebuild -version
+          brew update
+          brew install cmake ninja boost glm ffmpeg sdl2 bullet freetype
 
-      - name: Install Generation Tools
+      # ২. ডিপেনডেন্সি, OpenGL::GL টার্গেট এবং iOS GLES3 হেডার পাথ ম্যাপ করা
+      - name: Patch Dependencies Path
         run: |
-          brew install xcodegen
-          gem install xcpretty --no-document 2>/dev/null || true
+          # বুস্ট লাইব্রেরি ফিক্স
+          sed -i '' 's/find_package(Boost.*COMPONENTS.*/find_package(Boost REQUIRED)/g' CMakeLists.txt
+          sed -i '' '/find_package(Boost REQUIRED)/a\
+          set(Boost_INCLUDE_DIRS /opt/homebrew/include)\
+          set(Boost_LIBRARY_DIRS /opt/homebrew/lib)\
+          include_directories(${Boost_INCLUDE_DIRS})\
+          link_directories(${Boost_LIBRARY_DIRS})\
+          ' CMakeLists.txt
+          
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::program_options/boost_program_options/g' {} +
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::system/boost_system/g' {} +
+          find . -name "CMakeLists.txt" -exec sed -i '' 's/Boost::filesystem/boost_filesystem/g' {} +
 
-      - name: Initialize Target Trees
+          # ওপেনজিএল এবং মডার্ন OpenGL::GL ইন্টারফেস ফিক্স
+          # এখানে অতিরিক্ত হিসেবে iOS SDK-এর ভেতরের অরিজিনাল OpenGLES হেডার পাথ ইন্টারফেসে যুক্ত করা হয়েছে
+          sed -i '' '/find_package(OpenGL REQUIRED)/c\
+          set(OPENGL_FOUND TRUE)\
+          set(OPENGL_INCLUDE_DIR /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk/System/Library/Frameworks/OpenGLES.framework/Headers)\
+          set(OPENGL_LIBRARIES "-framework OpenGLES")\
+          if(NOT TARGET OpenGL::GL)\
+            add_library(OpenGL::GL INTERFACE IMPORTED)\
+            set_target_properties(OpenGL::GL PROPERTIES INTERFACE_LINK_LIBRARIES "-framework OpenGLES")\
+          endif()\
+          ' CMakeLists.txt
+
+          # imgui এর জন্য GLES3/gl3.h এরর ফিক্স (সরাসরি সোর্স কোড লেভেলে অ্যাপল ফ্রেমওয়ার্ক পাথ ইনজেক্ট করা)
+          find . -name "imgui_impl_opengl3.cpp" -exec sed -i '' 's/#include <GLES3\/gl3.h>/#include <OpenGLES\/ES3\/gl.h>/g' {} +
+
+      # ৩. ক্রস-কম্পাইল কনফিগারেশন (iOS SDK এবং হেডার ইনক্লুড ডিরেক্টরি সহ)
+      - name: Configure CMake
         run: |
-          mkdir -p SV3D/Sources
-          mkdir -p SV3D/Resources/Assets.xcassets/AppIcon.appiconset
+          mkdir build
+          cd build
+          cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_PREFIX_PATH="/opt/homebrew" \
+            -DCMAKE_FIND_ROOT_PATH="/opt/homebrew" \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+            -DCMAKE_CXX_FLAGS="-I/Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk/System/Library/Frameworks/OpenGLES.framework/Headers" \
+            -DCMAKE_C_FLAGS="-I/Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk/System/Library/Frameworks/OpenGLES.framework/Headers"
 
-      # ── AppDelegate ──────────────────────────────────────────────────────────
-      - name: Create AppDelegate.swift
+      # ৪. গেম কম্পাইল করা
+      - name: Build Project
         run: |
-          cat > SV3D/Sources/AppDelegate.swift << 'SWIFT_EOF'
-          import UIKit
+          cd build
+          cmake --build . --config ${{ env.BUILD_TYPE }}
 
-          @main
-          class AppDelegate: UIResponder, UIApplicationDelegate {
-              var window: UIWindow?
-              func application(
-                  _ application: UIApplication,
-                  didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-              ) -> Bool {
-                  window = UIWindow(frame: UIScreen.main.bounds)
-                  window?.rootViewController = GameViewController()
-                  window?.makeKeyAndVisible()
-                  return true
-              }
-          }
-          SWIFT_EOF
-
-      # ── Types ────────────────────────────────────────────────────────────────
-      - name: Create Types.swift
+      # ৫. আউটপুট বাইনারিকে আইফোনের জন্য সাইডলোডযোগ্য .ipa ফাইলে রূপান্তর
+      - name: Package Package into Sideloadable .ipa
         run: |
-          cat > SV3D/Sources/Types.swift << 'SWIFT_EOF'
-          import UIKit
+          mkdir -p build/Payload/rwgame.app
+          
+          BIN_PATH=$(find build -name "rwgame" -type f | head -n 1)
+          echo "Found Binary at: $BIN_PATH"
+          
+          if [ -z "$BIN_PATH" ]; then
+            echo "Error: Build output 'rwgame' not found!"
+            exit 1
+          fi
+          
+          cp "$BIN_PATH" build/Payload/rwgame.app/rwgame
+          
+          cat << 'EOF' > build/Payload/rwgame.app/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.txt">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>rwgame</string>
+              <key>CFBundleIdentifier</key>
+              <string>org.openrw.rwgame</string>
+              <key>CFBundleName</key>
+              <string>OpenRW</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UIDeviceFamily</key>
+              <array>
+                  <integer>1</integer>
+                  <integer>2</integer>
+              </array>
+          </dict>
+          </plist>
+          EOF
+          
+          cd build
+          zip -r openrw-ios-sideload.ipa Payload/
 
-          struct PhysicsMask {
-              static let none:   Int = 0
-              static let player: Int = 1 << 0
-              static let enemy:  Int = 1 << 1
-              static let bullet: Int = 1 << 2
-              static let wall:   Int = 1 << 3
-              static let ground: Int = 1 << 4
-          }
-
-          enum EnemyKind {
-              case walker, brute, runner, cultist, boss
-
-              var health: Float {
-                  switch self {
-                  case .walker:  return 120
-                  case .brute:   return 450
-                  case .runner:  return 70
-                  case .cultist: return 110
-                  case .boss:    return 2500
-                  }
-              }
-              var speed: Float {
-                  switch self {
-                  case .walker:  return 2.5
-                  case .brute:   return 1.4
-                  case .runner:  return 4.8
-                  case .cultist: return 2.2
-                  case .boss:    return 1.9
-                  }
-              }
-              var damage: Float {
-                  switch self {
-                  case .walker:  return 12
-                  case .brute:   return 35
-                  case .runner:  return 8
-                  case .cultist: return 20
-                  case .boss:    return 55
-                  }
-              }
-              var attackRange: Float {
-                  switch self {
-                  case .walker:  return 1.2
-                  case .brute:   return 1.6
-                  case .runner:  return 1.0
-                  case .cultist: return 1.3
-                  case .boss:    return 3.0
-                  }
-              }
-              var scoreValue: Int {
-                  switch self {
-                  case .walker:  return 150
-                  case .brute:   return 400
-                  case .runner:  return 200
-                  case .cultist: return 250
-                  case .boss:    return 5000
-                  }
-              }
-              var attackInterval: TimeInterval { return self == .boss ? 0.6 : 1.1 }
-              var radius: Float {
-                  switch self {
-                  case .walker:  return 0.38
-                  case .brute:   return 0.72
-                  case .runner:  return 0.28
-                  case .cultist: return 0.35
-                  case .boss:    return 1.50
-                  }
-              }
-              var height: Float { return radius * 4.2 }
-              
-              var baseColor: UIColor {
-                  switch self {
-                  case .walker:  return UIColor(red: 0.15, green: 0.35, blue: 0.15, alpha: 1)
-                  case .brute:   return UIColor(red: 0.55, green: 0.05, blue: 0.05, alpha: 1)
-                  case .runner:  return UIColor(red: 0.60, green: 0.40, blue: 0.05, alpha: 1)
-                  case .cultist: return UIColor(red: 0.30, green: 0.05, blue: 0.45, alpha: 1)
-                  case .boss:    return UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1)
-                  }
-              }
-          }
-          SWIFT_EOF
-
-      # ── VirtualJoystick (FIXED STRUCTURAL HIERARCHY FOR RENDERING) ───────────
-      - name: Create VirtualJoystick.swift
-        run: |
-          cat > SV3D/Sources/VirtualJoystick.swift << 'SWIFT_EOF'
-          import UIKit
-
-          class VirtualJoystick: UIView {
-              private let baseRing = UIView()
-              private let thumbKnob = UIView()
-              private let innerGlow = UIView()
-              let maxRadius: CGFloat
-              
-              var inputVector: SIMD2<Float> = .zero
-              var isTracking: Bool = false
-              weak var currentTouch: UITouch?
-
-              init(radius: CGFloat) {
-                  self.maxRadius = radius
-                  super.init(frame: CGRect(x: 0, y: 0, width: radius * 2, height: radius * 2))
-                  
-                  // Crucial Structural Fix: Interactivity explicitly verified to prevent window clipping Pass-through
-                  self.isUserInteractionEnabled = false
-                  self.backgroundColor = .clear
-                  self.layer.zPosition = 999
-
-                  // PS5 Premium Matte Structural Profile
-                  baseRing.frame = bounds
-                  baseRing.layer.cornerRadius = radius
-                  baseRing.backgroundColor = UIColor(white: 0.12, alpha: 0.65)
-                  baseRing.layer.borderColor = UIColor(red: 0.0, green: 0.55, blue: 1.0, alpha: 0.85).cgColor
-                  baseRing.layer.borderWidth = 2.5
-                  baseRing.isUserInteractionEnabled = false
-                  addSubview(baseRing)
-
-                  // Center DualSense Textures & Ergonomic Matte Core
-                  let kSize = radius * 0.48
-                  thumbKnob.frame = CGRect(x: radius - kSize, y: radius - kSize, width: kSize * 2, height: kSize * 2)
-                  thumbKnob.layer.cornerRadius = kSize
-                  thumbKnob.backgroundColor = UIColor(white: 0.25, alpha: 0.95)
-                  thumbKnob.layer.borderColor = UIColor(white: 0.85, alpha: 0.9).cgColor
-                  thumbKnob.layer.borderWidth = 2.0
-                  thumbKnob.isUserInteractionEnabled = false
-                  
-                  let gSize = kSize * 0.38
-                  innerGlow.frame = CGRect(x: kSize - gSize, y: kSize - gSize, width: gSize * 2, height: gSize * 2)
-                  innerGlow.layer.cornerRadius = gSize
-                  innerGlow.backgroundColor = UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.95)
-                  innerGlow.isUserInteractionEnabled = false
-                  thumbKnob.addSubview(innerGlow)
-                  
-                  addSubview(thumbKnob)
-              }
-
-              required init?(coder: NSCoder) { fatalError() }
-
-              func updateTrackPosition(_ touch: UITouch, within container: UIView) {
-                  let location = touch.location(in: container)
-                  let centerPt = center
-                  
-                  let dx = Float(location.x - centerPt.x)
-                  let dy = Float(location.y - centerPt.y)
-                  let currentDistance = sqrt(dx * dx + dy * dy)
-                  let limit = Float(maxRadius)
-
-                  if currentDistance <= limit {
-                      thumbKnob.center = CGPoint(x: maxRadius + CGFloat(dx), y: maxRadius + CGFloat(dy))
-                      inputVector = SIMD2<Float>(dx / limit, dy / limit)
-                  } else {
-                      let ratio = limit / currentDistance
-                      let clampedX = dx * ratio
-                      let clampedY = dy * ratio
-                      thumbKnob.center = CGPoint(x: maxRadius + CGFloat(clampedX), y: maxRadius + CGFloat(clampedY))
-                      inputVector = SIMD2<Float>(clampedX / limit, clampedY / limit)
-                  }
-                  isTracking = currentDistance > limit * 0.05
-              }
-
-              func clearInput() {
-                  inputVector = .zero
-                  isTracking = false
-                  currentTouch = nil
-                  UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
-                      self.thumbKnob.center = CGPoint(x: self.maxRadius, y: self.maxRadius)
-                  }
-              }
-          }
-          SWIFT_EOF
-
-      # ── HUDOverlay ───────────────────────────────────────────────────────────
-      - name: Create HUDOverlay.swift
-        run: |
-          cat > SV3D/Sources/HUDOverlay.swift << 'SWIFT_EOF'
-          import UIKit
-
-          class HUDOverlay: UIView {
-              private let hpBg      = UIView()
-              private let hpBar     = UIView()
-              private let ammoLbl   = UILabel()
-              private let scoreLbl  = UILabel()
-              private let waveLbl   = UILabel()
-              private let msgLbl    = UILabel()
-              private let reloadLbl = UILabel()
-              private(set) var shootBtn = UIButton(type: .custom)
-              let barW: CGFloat = 220
-
-              override init(frame: CGRect) {
-                  super.init(frame: frame)
-                  isUserInteractionEnabled = false 
-                  self.layer.zPosition = 900
-                  buildUI()
-              }
-              required init?(coder: NSCoder) { fatalError() }
-
-              private func monoFont(_ size: CGFloat, bold: Bool = false) -> UIFont {
-                  let name  = bold ? "Courier-Bold" : "Courier"
-                  return UIFont(name: name, size: size) ?? (bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size))
-              }
-
-              private func buildUI() {
-                  hpBg.frame            = CGRect(x: 20, y: 20, width: barW + 4, height: 22)
-                  hpBg.backgroundColor  = UIColor(white: 0.1, alpha: 0.6)
-                  hpBg.layer.cornerRadius = 2
-                  addSubview(hpBg)
-
-                  hpBar.frame             = CGRect(x: 22, y: 22, width: barW, height: 18)
-                  hpBar.backgroundColor   = UIColor(red: 0.15, green: 0.75, blue: 0.15, alpha: 1)
-                  hpBar.layer.cornerRadius = 1
-                  addSubview(hpBar)
-
-                  scoreLbl.frame            = CGRect(x: 0, y: 20, width: bounds.width, height: 26)
-                  scoreLbl.autoresizingMask = [.flexibleWidth]
-                  scoreLbl.text             = "SCORE: 000000"
-                  scoreLbl.textColor        = .white
-                  scoreLbl.font             = monoFont(16, bold: true)
-                  scoreLbl.textAlignment    = .center
-                  addSubview(scoreLbl)
-
-                  waveLbl.frame            = CGRect(x: 0, y: 46, width: bounds.width, height: 20)
-                  waveLbl.autoresizingMask = [.flexibleWidth]
-                  waveLbl.text             = "PHASE 01"
-                  waveLbl.textColor        = UIColor(white: 0.7, alpha: 1)
-                  waveLbl.font             = monoFont(12, bold: true)
-                  waveLbl.textAlignment    = .center
-                  addSubview(waveLbl)
-
-                  ammoLbl.frame            = CGRect(x: bounds.width - 180, y: bounds.height - 80, width: 150, height: 40)
-                  ammoLbl.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
-                  ammoLbl.text             = "30/120"
-                  ammoLbl.textColor        = .white
-                  ammoLbl.font             = monoFont(22, bold: true)
-                  ammoLbl.textAlignment    = .right
-                  addSubview(ammoLbl)
-
-                  reloadLbl.frame            = CGRect(x: bounds.width - 220, y: bounds.height - 115, width: 190, height: 26)
-                  reloadLbl.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
-                  reloadLbl.text             = "RELOADING"
-                  reloadLbl.textColor        = UIColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1)
-                  reloadLbl.font = monoFont(14, bold: true)
-                  reloadLbl.textAlignment    = .right
-                  reloadLbl.isHidden         = true
-                  addSubview(reloadLbl)
-
-                  addSubview(makeCrosshair())
-
-                  let sbS: CGFloat = 85
-                  shootBtn.frame = CGRect(x: bounds.width - sbS - 40, y: bounds.height - sbS - 40, width: sbS, height: sbS)
-                  shootBtn.autoresizingMask       = [.flexibleLeftMargin, .flexibleTopMargin]
-                  shootBtn.backgroundColor        = UIColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 0.45)
-                  shootBtn.layer.cornerRadius     = sbS / 2
-                  shootBtn.layer.borderColor      = UIColor(white: 1.0, alpha: 0.85).cgColor
-                  shootBtn.layer.borderWidth = 2.5
-                  shootBtn.setTitle("🔥", for: .normal)
-                  shootBtn.titleLabel?.font       = UIFont.systemFont(ofSize: 34)
-                  shootBtn.isUserInteractionEnabled = true 
-                  addSubview(shootBtn)
-              }
-
-              private func makeCrosshair() -> UIView {
-                  let s: CGFloat = 16, g: CGFloat = 4, t: CGFloat = 1.5
-                  let w = bounds.width / 2, h = bounds.height / 2
-                  let col = UIColor(red: 0.0, green: 1.0, blue: 0.4, alpha: 0.9)
-                  let container = UIView(frame: bounds)
-                  container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                  container.isUserInteractionEnabled = false
-                  func bar(_ f: CGRect) -> UIView {
-                      let b = UIView(frame: f)
-                      b.backgroundColor = col
-                      return b
-                  }
-                  container.addSubview(bar(CGRect(x: w - s - g / 2, y: h - t / 2, width: s, height: t)))
-                  container.addSubview(bar(CGRect(x: w + g / 2,     y: h - t / 2, width: s, height: t)))
-                  container.addSubview(bar(CGRect(x: w - t / 2,     y: h - s - g / 2, width: t, height: s)))
-                  container.addSubview(bar(CGRect(x: w - t / 2,     y: h + g / 2, width: t, height: s)))
-                  return container
-              }
-
-              func update(health: Float, maxHealth: Float, ammo: Int, totalAmmo: Int, score: Int, wave: Int, isReloading: Bool) {
-                  let ratio = CGFloat(max(0, health / maxHealth))
-                  UIView.animate(withDuration: 0.15) { self.hpBar.frame.size.width = self.barW * ratio }
-                  hpBar.backgroundColor = ratio > 0.45 
-                      ? UIColor(red: 0.2, green: 0.7, blue: 0.2, alpha: 1) 
-                      : UIColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1)
-                  
-                  ammoLbl.text      = String(format: "%02d/%03d", ammo, totalAmmo)
-                  scoreLbl.text     = String(format: "SCORE: %06d", score)
-                  waveLbl.text      = String(format: "PHASE %02d", wave)
-                  reloadLbl.isHidden = !isReloading
-              }
-          }
-          SWShift_EOF
-          sed -i '' 's/SWShift_EOF/SWIFT_EOF/g' SV3D/Sources/HUDOverlay.swift
+      # ৬. ফাইনাল .ipa ফাইলটি আপলোড করা
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrw-ios-sideload
+          path: build/openrw-ios-sideload.ipa
