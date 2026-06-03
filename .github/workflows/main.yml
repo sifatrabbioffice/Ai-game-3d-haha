@@ -1335,7 +1335,7 @@ jobs:
                       p.particleLifeSpan = 0.45
                       p.particleSize     = 0.07
                       p.particleColor    = UIColor(red:0.75, green:0.02, blue:0.02, alpha:1)
-                      p.affectedByGravity = true
+                      p.isAffectedByGravity = true
                       p.spreadingAngle   = 130
                       p.particleVelocity = 2.8
                       return p
@@ -1351,7 +1351,7 @@ jobs:
                       p.particleLifeSpan = 0.70
                       p.particleSize     = 0.12
                       p.particleColor    = UIColor(red:0.62, green:0.52, blue:0.36, alpha:0.7)
-                      p.affectedByGravity = true
+                      p.isAffectedByGravity = true
                       p.spreadingAngle   = 90
                       p.particleVelocity = 1.8
                       return p
