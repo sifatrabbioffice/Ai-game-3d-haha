@@ -191,7 +191,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── AAA CONSOLE-GRADE JOYSTICK UI COMPONENT ─────────────────────────────
+      # ── AAA CONSOLE-GRADE JOYSTICK UI COMPONENT (FIXED SIGNATURE) ───────────
       - name: AAAJoystickView.swift
         run: |
           cat > SV3D/Sources/AAAJoystickView.swift << 'SWIFT_EOF'
@@ -228,7 +228,6 @@ jobs:
               required init?(coder: NSCoder) { fatalError() }
               
               private func setupHierarchy() {
-                  // Base Outer Ring Design
                   baseRing.frame = CGRect(x: bounds.width/2 - maxRadius, y: bounds.height/2 - maxRadius, width: maxRadius * 2, height: maxRadius * 2)
                   baseRing.backgroundColor = UIColor(white: 0.08, alpha: 0.5)
                   baseRing.layer.borderColor = UIColor(white: 0.85, alpha: 0.4).cgColor
@@ -236,7 +235,6 @@ jobs:
                   baseRing.layer.cornerRadius = maxRadius
                   addSubview(baseRing)
                   
-                  // Sprint Lock Notch Indicator
                   let siW: CGFloat = 24
                   sprintIndicator.frame = CGRect(x: bounds.width/2 - siW/2, y: bounds.height/2 - maxRadius - 20, width: siW, height: 12)
                   sprintIndicator.backgroundColor = .orange
@@ -244,7 +242,6 @@ jobs:
                   sprintIndicator.alpha = 0.3
                   addSubview(sprintIndicator)
                   
-                  // Center Control Knob Design
                   let kR = maxRadius * 0.42
                   knob.frame = CGRect(x: bounds.width/2 - kR, y: bounds.height/2 - kR, width: kR * 2, height: kR * 2)
                   knob.backgroundColor = UIColor(red: 0.2, green: 0.6, blue: 1.0, alpha: 0.85)
@@ -252,7 +249,6 @@ jobs:
                   knob.layer.borderWidth = 2.0
                   knob.layer.cornerRadius = kR
                   
-                  // Inner core visual accents
                   let core = UIView(frame: CGRect(x: kR - 6, y: kR - 6, width: 12, height: 12))
                   core.backgroundColor = .white
                   core.layer.cornerRadius = 6
@@ -261,7 +257,7 @@ jobs:
                   addSubview(knob)
               }
               
-              func anchorAndBeginTrack(_ touch: UITouch, in parentView: View) {
+              func anchorAndBeginTrack(_ touch: UITouch, in parentView: UIView) {
                   trackingTouch = touch
                   isActive = true
                   let location = touch.location(in: parentView)
@@ -296,7 +292,6 @@ jobs:
                   
                   knob.center = CGPoint(x: centerPt.x + CGFloat(finalX), y: centerPt.y + CGFloat(finalY))
                   
-                  // Compute Normalized Output Metrics
                   let normX = finalX / maxD
                   let normY = finalY / maxD
                   let magnitude = sqrt(normX*normX + normY*normY)
@@ -305,12 +300,10 @@ jobs:
                       outputVector = .zero
                       isSprinting = false
                   } else {
-                      // Power Curve Response for fine adjustments
                       let scaleFactor = (magnitude - deadZone) / (1.0 - deadZone)
                       let advancedSensitivityFactor = pow(scaleFactor, 1.4)
                       outputVector = SIMD2<Float>((normX / magnitude) * advancedSensitivityFactor, (normY / magnitude) * advancedSensitivityFactor)
                       
-                      // Sprint-Lock Evaluation System (-Y represents Forward upward movement)
                       if normY < -0.82 && magnitude > 0.90 {
                           isSprinting = true
                           sprintIndicator.alpha = 1.0
@@ -375,7 +368,6 @@ jobs:
                   reloadBar.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin]
                   addSubview(reloadBar)
 
-                  // Sprint Lock Activation HUD element
                   sprintBadge.frame = CGRect(x: 40, y: 40, width: 120, height: 26)
                   sprintBadge.backgroundColor = UIColor(red: 0.0, green: 0.8, blue: 0.9, alpha: 0.7)
                   sprintBadge.textColor = .white
@@ -429,6 +421,7 @@ jobs:
           }
           SWIFT_EOF
 
+      # ── GameViewController.swift (FIXED EXPLICIT TYPE CASTING FOR VECTOR CALCULATIONS) ──
       - name: GameViewController.swift
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
@@ -532,12 +525,10 @@ jobs:
               private func setupJoysticks() {
                   let jRadius = view.bounds.height * 0.16
                   
-                  // Movement Joystick: Configured with Dynamic Floating Anchorage on the Left Sector
                   moveJoystick = AAAJoystickView(radius: jRadius, isDynamic: true)
                   moveJoystick.center = CGPoint(x: jRadius + 50, y: view.bounds.height - jRadius - 50)
                   view.addSubview(moveJoystick)
                   
-                  // Aiming Joystick: Static High-Precision layout on the Right Sector
                   aimJoystick = AAAJoystickView(radius: jRadius, isDynamic: false)
                   aimJoystick.center = CGPoint(x: view.bounds.width - jRadius - 50, y: view.bounds.height - jRadius - 50)
                   view.addSubview(aimJoystick)
@@ -567,10 +558,9 @@ jobs:
                           aimJoystick.updateTouchPosition(t, in: view)
                           let currentPt = t.location(in: view)
                           
-                          // Multi-axis Camera panning computations
-                          cameraYaw -= Float(currentPt.x - lastAimPt.x) * 0.0045
-                          cameraPitch -= Float(currentPt.y - lastAimPt.y) * 0.003
-                          cameraPitch = max(-0.6, min(0.6, cameraPitch)) // Avoid camera inversion flips
+                          cameraYaw -= Float(currentPt.x - lastAimPt.x) * Float(0.0045)
+                          cameraPitch -= Float(currentPt.y - lastAimPt.y) * Float(0.003)
+                          cameraPitch = max(Float(-0.6), min(Float(0.6), cameraPitch))
                           
                           lastAimPt = currentPt
                       }
@@ -590,17 +580,16 @@ jobs:
                       s.hudView.update(ammo: s.ammo, totalAmmo: s.totalAmmo, isReloading: s.isReloading, reloadProgress: s.reloadProgress, sprinting: s.moveJoystick.isSprinting)
                   }
                   
-                  // Compute vector forces based on AAA Controller outputs
                   let moveVec = moveJoystick.outputVector
                   if moveVec != .zero {
                       let speedMultiplier: Float = moveJoystick.isSprinting ? 5.5 : 2.5
                       let forwardX = sin(cameraYaw) * moveVec.y
                       let forwardZ = cos(cameraYaw) * moveVec.y
-                      let strafeX = sin(cameraYaw + .pi/2) * moveVec.x
-                      let strafeZ = cos(cameraYaw + .pi/2) * moveVec.x
+                      let strafeX = sin(cameraYaw + (Float.pi / 2.0)) * moveVec.x
+                      let strafeZ = cos(cameraYaw + (Float.pi / 2.0)) * moveVec.x
                       
-                      playerNode.position.x += (forwardX + strafeX) * 0.016 * speedMultiplier
-                      playerNode.position.z += (forwardZ + strafeZ) * 0.016 * speedMultiplier
+                      playerNode.position.x += (forwardX + strafeX) * Float(0.016) * speedMultiplier
+                      playerNode.position.z += (forwardZ + strafeZ) * Float(0.016) * speedMultiplier
                   }
                   
                   playerChar.eulerAngles.y = cameraYaw
@@ -609,7 +598,7 @@ jobs:
           }
           SWIFT_EOF
 
-      # ── Project Configuration (FULL BUNDLE IDENTIFICATION FIX) ──────────────
+      # ── Project Configuration ───────────────────────────────────────────────
       - name: Generate Xcode Project
         run: |
           cat > SV3D/project.yml << 'YAML_EOF'
