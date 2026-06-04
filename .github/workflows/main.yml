@@ -12,6 +12,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Select Stable Xcode Version
+        run: |
+          # Ensures the command line tools point to a modern, fully compatible Xcode installation
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -28,6 +33,7 @@ jobs:
             bundleIdPrefix: com.premium.architecture
             deploymentTarget:
               iOS: "15.0"
+            objectVersion: 56
           targets:
             AAAGame:
               type: application
@@ -502,12 +508,12 @@ jobs:
                   self.movementInput = vector
               }
               
-              func buildEnvironment(inside scene: SCNScene) {
+              func buildEnvironment(inside SCNScene: SCNScene) {
                   // Establish Infinite Grid Roads
                   for i in 0..<trackDepthCount {
                       let segment = generateRoadSegment(length: segmentLength)
                       segment.position = SCNVector3(0, 0, Float(i) * segmentLength)
-                      scene.rootNode.addChildNode(segment)
+                      SCNScene.rootNode.addChildNode(segment)
                       segments.append(segment)
                   }
                   
@@ -520,7 +526,7 @@ jobs:
                   cameraNode?.position = SCNVector3(0, 5.5, -9.0)
                   cameraNode?.eulerAngles = SCNVector3(-0.25, Float.pi, 0)
                   if let cam = cameraNode {
-                      scene.rootNode.addChildNode(cam)
+                      SCNScene.rootNode.addChildNode(cam)
                   }
               }
               
@@ -556,7 +562,7 @@ jobs:
                   return baseNode
               }
               
-              func instantiateCharacter(inside scene: SCNScene, type: CharacterModel) {
+              func instantiateCharacter(inside SCNScene: SCNScene, type: CharacterModel) {
                   activeSkin = type
                   let masterContainer = SCNNode()
                   masterContainer.position = SCNVector3(0, 0, 5)
@@ -593,7 +599,7 @@ jobs:
                   masterContainer.addChildNode(visorNode)
                   
                   characterNode = masterContainer
-                  scene.rootNode.addChildNode(masterContainer)
+                  SCNScene.rootNode.addChildNode(masterContainer)
               }
               
               func verifyAndSwapSkin(type: CharacterModel) {
@@ -660,7 +666,6 @@ jobs:
                   
                   // Real-Time Road Recycler Engine (Procedural Loop Algorithm)
                   for segment in segments {
-                      // If the segment falls too far behind the moving camera, push it out to the horizon line
                       if camera.position.z - segment.position.z > segmentLength {
                           segment.position.z += segmentLength * Float(trackDepthCount)
                       }
