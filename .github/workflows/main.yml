@@ -1,4 +1,4 @@
-name: 🎮 Shadow Village 3D – PUBG-Style + Custom Character + Reload UI
+name: 🎮 Shadow Village 3D – PUBG-Style AAA Controls Edition
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build IPA (Custom Assets + Sound + UI)
+    name: Build IPA (AAA Joystick + Custom Character + Fixed Bundle)
     runs-on: macos-14
     steps:
 
@@ -37,9 +37,9 @@ jobs:
       # ── Download Custom 3D Character ────────────────────────────────────────
       - name: Download 3D Character Model (GLB format recommended)
         run: |
-          echo "📥 Downloading custom 3D character..."
+          echo "📥 Downloading custom 3D character asset..."
           CUSTOM_MODEL_URL="https://github.com/KhronosGroup/glTF-Sample-Assets/raw/main/Models/BoxAnimated/glTF-Binary/BoxAnimated.glb"
-          curl -L "$CUSTOM_MODEL_URL" -o SV3D/Resources/Models/character.glb 2>/dev/null || echo "⚠️ Model source unavailable"
+          curl -L "$CUSTOM_MODEL_URL" -o SV3D/Resources/Models/character.glb 2>/dev/null || echo "⚠️ Model source offline"
           ls -lh SV3D/Resources/Models/
 
       # ── Convert Models to SceneKit-Compatible USDZ ──────────────────────────
@@ -187,47 +187,155 @@ jobs:
                   addChildNode(node)
               }
 
-              func animate(isMoving: Bool, isRunning: Bool, isShooting: Bool, dt: Float) {}
+              func animate(isMoving: Bool, isSprinting: Bool, isShooting: Bool, dt: Float) {}
           }
           SWIFT_EOF
 
-      - name: JoystickView.swift
+      # ── AAA CONSOLE-GRADE JOYSTICK UI COMPONENT ─────────────────────────────
+      - name: AAAJoystickView.swift
         run: |
-          cat > SV3D/Sources/JoystickView.swift << 'SWIFT_EOF'
+          cat > SV3D/Sources/AAAJoystickView.swift << 'SWIFT_EOF'
           import UIKit
-          class JoystickView: UIView {
+
+          class AAAJoystickView: UIView {
+              private let baseRing = UIView()
               private let knob = UIView()
-              let radius: CGFloat
-              var velocity: SIMD2<Float> = .zero
-              var isActive: Bool = false
-              weak var trackingTouch: UITouch?
+              private let sprintIndicator = UIView()
               
-              init(radius: CGFloat) {
-                  self.radius = radius
-                  super.init(frame: CGRect(x:0, y:0, width:radius*2, height:radius*2))
-                  isUserInteractionEnabled = false; alpha = 0.80
+              let maxRadius: CGFloat
+              private let deadZone: Float = 0.15
+              
+              private(set) var outputVector: SIMD2<Float> = .zero
+              private(set) var isSprinting: Bool = false
+              private(set) var isActive: Bool = false
+              
+              weak var trackingTouch: UITouch?
+              private var initialCenter: CGPoint = .zero
+              private var isDynamic: Bool = false
+
+              init(radius: CGFloat, isDynamic: Bool = false) {
+                  self.maxRadius = radius
+                  self.isDynamic = isDynamic
+                  super.init(frame: CGRect(x: 0, y: 0, width: radius * 2.5, height: radius * 2.5))
                   
-                  let kR = radius * 0.32
-                  knob.frame = CGRect(x:radius-kR, y:radius-kR, width:kR*2, height:kR*2)
-                  knob.backgroundColor = UIColor(red:0.25, green:0.85, blue:0.35, alpha:0.75)
+                  backgroundColor = .clear
+                  isUserInteractionEnabled = false
+                  alpha = 0.4
+                  
+                  setupHierarchy()
+              }
+              
+              required init?(coder: NSCoder) { fatalError() }
+              
+              private func setupHierarchy() {
+                  // Base Outer Ring Design
+                  baseRing.frame = CGRect(x: bounds.width/2 - maxRadius, y: bounds.height/2 - maxRadius, width: maxRadius * 2, height: maxRadius * 2)
+                  baseRing.backgroundColor = UIColor(white: 0.08, alpha: 0.5)
+                  baseRing.layer.borderColor = UIColor(white: 0.85, alpha: 0.4).cgColor
+                  baseRing.layer.borderWidth = 2.5
+                  baseRing.layer.cornerRadius = maxRadius
+                  addSubview(baseRing)
+                  
+                  // Sprint Lock Notch Indicator
+                  let siW: CGFloat = 24
+                  sprintIndicator.frame = CGRect(x: bounds.width/2 - siW/2, y: bounds.height/2 - maxRadius - 20, width: siW, height: 12)
+                  sprintIndicator.backgroundColor = .orange
+                  sprintIndicator.layer.cornerRadius = 3
+                  sprintIndicator.alpha = 0.3
+                  addSubview(sprintIndicator)
+                  
+                  // Center Control Knob Design
+                  let kR = maxRadius * 0.42
+                  knob.frame = CGRect(x: bounds.width/2 - kR, y: bounds.height/2 - kR, width: kR * 2, height: kR * 2)
+                  knob.backgroundColor = UIColor(red: 0.2, green: 0.6, blue: 1.0, alpha: 0.85)
+                  knob.layer.borderColor = UIColor.white.cgColor
+                  knob.layer.borderWidth = 2.0
                   knob.layer.cornerRadius = kR
+                  
+                  // Inner core visual accents
+                  let core = UIView(frame: CGRect(x: kR - 6, y: kR - 6, width: 12, height: 12))
+                  core.backgroundColor = .white
+                  core.layer.cornerRadius = 6
+                  knob.addSubview(core)
+                  
                   addSubview(knob)
               }
-              required init?(coder: NSCoder) { fatalError() }
-
-              func moveTouch(_ touch: UITouch, in parentView: UIView) {
-                  let pt = touch.location(in: parentView)
-                  let cx = frame.midX, cy = frame.midY
-                  let dx = Float(pt.x - cx), dy = Float(pt.y - cy)
-                  let dist = sqrt(dx*dx + dy*dy), maxD = Float(radius)
-                  let f = dist <= maxD ? 1.0 : maxD / dist
-                  knob.center = CGPoint(x: cx + CGFloat(dx*f), y: cy + CGFloat(dy*f))
-                  velocity = SIMD2<Float>(dx*f/maxD, dy*f/maxD)
-                  isActive = dist > maxD * 0.12
+              
+              func anchorAndBeginTrack(_ touch: UITouch, in parentView: View) {
+                  trackingTouch = touch
+                  isActive = true
+                  let location = touch.location(in: parentView)
+                  
+                  if isDynamic {
+                      self.center = location
+                  }
+                  
+                  UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
+                      self.alpha = 0.95
+                      self.knob.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+                  }
+                  updateTouchPosition(touch, in: parentView)
               }
-              func reset() {
-                  knob.center = CGPoint(x:radius, y:radius)
-                  velocity = .zero; isActive = false; trackingTouch = nil
+              
+              func updateTouchPosition(_ touch: UITouch, in parentView: UIView) {
+                  let currentPt = touch.location(in: self)
+                  let centerPt = CGPoint(x: bounds.width/2, y: bounds.height/2)
+                  
+                  let dx = Float(currentPt.x - centerPt.x)
+                  let dy = Float(currentPt.y - centerPt.y)
+                  let currentDistance = sqrt(dx*dx + dy*dy)
+                  
+                  let maxD = Float(maxRadius)
+                  var finalX = dx
+                  var finalY = dy
+                  
+                  if currentDistance > maxD {
+                      finalX = (dx / currentDistance) * maxD
+                      finalY = (dy / currentDistance) * maxD
+                  }
+                  
+                  knob.center = CGPoint(x: centerPt.x + CGFloat(finalX), y: centerPt.y + CGFloat(finalY))
+                  
+                  // Compute Normalized Output Metrics
+                  let normX = finalX / maxD
+                  let normY = finalY / maxD
+                  let magnitude = sqrt(normX*normX + normY*normY)
+                  
+                  if magnitude < deadZone {
+                      outputVector = .zero
+                      isSprinting = false
+                  } else {
+                      // Power Curve Response for fine adjustments
+                      let scaleFactor = (magnitude - deadZone) / (1.0 - deadZone)
+                      let advancedSensitivityFactor = pow(scaleFactor, 1.4)
+                      outputVector = SIMD2<Float>((normX / magnitude) * advancedSensitivityFactor, (normY / magnitude) * advancedSensitivityFactor)
+                      
+                      // Sprint-Lock Evaluation System (-Y represents Forward upward movement)
+                      if normY < -0.82 && magnitude > 0.90 {
+                          isSprinting = true
+                          sprintIndicator.alpha = 1.0
+                          sprintIndicator.backgroundColor = .cyan
+                      } else {
+                          isSprinting = false
+                          sprintIndicator.alpha = 0.3
+                          sprintIndicator.backgroundColor = .orange
+                      }
+                  }
+              }
+              
+              func terminateTracking() {
+                  trackingTouch = nil
+                  isActive = false
+                  outputVector = .zero
+                  isSprinting = false
+                  
+                  UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
+                      self.alpha = 0.4
+                      self.knob.transform = .identity
+                      self.knob.center = CGPoint(x: self.bounds.width/2, y: self.bounds.height/2)
+                      self.sprintIndicator.alpha = 0.3
+                      self.sprintIndicator.backgroundColor = .orange
+                  }
               }
           }
           SWIFT_EOF
@@ -238,10 +346,10 @@ jobs:
           import UIKit
 
           class HUDOverlay: UIView {
-              private let hpLabel = UILabel()
               private let ammoLbl = UILabel()
               private let reloadBg = UIView()
               private let reloadBar = UIView()
+              private let sprintBadge = UILabel()
               
               private(set) var shootBtn = UIButton(type: .custom)
               private(set) var reloadBtn = UIButton(type: .custom)
@@ -267,23 +375,39 @@ jobs:
                   reloadBar.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin]
                   addSubview(reloadBar)
 
-                  let sbS: CGFloat = 80
+                  // Sprint Lock Activation HUD element
+                  sprintBadge.frame = CGRect(x: 40, y: 40, width: 120, height: 26)
+                  sprintBadge.backgroundColor = UIColor(red: 0.0, green: 0.8, blue: 0.9, alpha: 0.7)
+                  sprintBadge.textColor = .white
+                  sprintBadge.font = .boldSystemFont(ofSize: 12)
+                  sprintBadge.textAlignment = .center
+                  sprintBadge.text = "⚡ RUN LOCK"
+                  sprintBadge.layer.cornerRadius = 6
+                  sprintBadge.layer.masksToBounds = true
+                  sprintBadge.isHidden = true
+                  addSubview(sprintBadge)
+
+                  let sbS: CGFloat = 82
                   shootBtn.frame = CGRect(x: bounds.width - sbS - 140, y: bounds.height - sbS - 40, width: sbS, height: sbS)
                   shootBtn.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
-                  shootBtn.backgroundColor = UIColor(red:0.65, green:0.04, blue:0.04, alpha:0.82)
+                  shootBtn.backgroundColor = UIColor(red:0.75, green:0.08, blue:0.08, alpha:0.85)
+                  shootBtn.layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
+                  shootBtn.layer.borderWidth = 1.5
                   shootBtn.layer.cornerRadius = sbS/2
                   shootBtn.setTitle("🔥", for: .normal)
                   shootBtn.titleLabel?.font = .systemFont(ofSize:36)
                   shootBtn.isUserInteractionEnabled = true
                   addSubview(shootBtn)
 
-                  let rbS: CGFloat = 60
+                  let rbS: CGFloat = 62
                   reloadBtn.frame = CGRect(x: bounds.width - sbS - rbS - 160, y: bounds.height - sbS - rbS - 10, width: rbS, height: rbS)
                   reloadBtn.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
-                  reloadBtn.backgroundColor = UIColor(red:0.1, green:0.5, blue:0.8, alpha:0.82)
+                  reloadBtn.backgroundColor = UIColor(red:0.12, green:0.45, blue:0.78, alpha:0.85)
+                  reloadBtn.layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
+                  reloadBtn.layer.borderWidth = 1.5
                   reloadBtn.layer.cornerRadius = rbS/2
                   reloadBtn.setTitle("🔄", for: .normal)
-                  reloadBtn.titleLabel?.font = .systemFont(ofSize:28)
+                  reloadBtn.titleLabel?.font = .systemFont(ofSize:26)
                   reloadBtn.isUserInteractionEnabled = true
                   addSubview(reloadBtn)
                   
@@ -293,12 +417,13 @@ jobs:
                   addSubview(dot)
               }
 
-              func update(ammo: Int, totalAmmo: Int, isReloading: Bool, reloadProgress: Float) {
+              func update(ammo: Int, totalAmmo: Int, isReloading: Bool, reloadProgress: Float, sprinting: Bool) {
                   ammoLbl.text = ammo == 0 ? "RELOAD!" : "\(ammo) | \(totalAmmo)"
                   reloadBg.isHidden = !isReloading
                   reloadBar.isHidden = !isReloading
+                  sprintBadge.isHidden = !sprinting
                   if isReloading {
-                      UIView.animate(withDuration: 0.1) { self.reloadBar.frame.size.width = 180 * CGFloat(reloadProgress) }
+                      self.reloadBar.frame.size.width = 180 * CGFloat(reloadProgress)
                   }
               }
           }
@@ -324,10 +449,11 @@ jobs:
               private var reloadProgress: Float = 0
               private var isShooting = false
               
-              private var moveJoystick: JoystickView!
-              private var aimJoystick: JoystickView!
+              private var moveJoystick: AAAJoystickView!
+              private var aimJoystick: AAAJoystickView!
               private var hudView: HUDOverlay!
               private var cameraYaw: Float = 0
+              private var cameraPitch: Float = 0
               private var lastAimPt: CGPoint = .zero
               
               private var reloadTimer: Timer?
@@ -359,7 +485,7 @@ jobs:
                   
                   cameraNode = SCNNode()
                   cameraNode.camera = SCNCamera()
-                  cameraNode.position = SCNVector3(0, 2.5, 5)
+                  cameraNode.position = SCNVector3(0, 2.2, 4.5)
                   playerNode.addChildNode(cameraNode)
               }
 
@@ -404,57 +530,86 @@ jobs:
               }
 
               private func setupJoysticks() {
-                  let jR = view.bounds.height * 0.15
-                  moveJoystick = JoystickView(radius: jR)
-                  moveJoystick.center = CGPoint(x: jR + 30, y: view.bounds.height - jR - 30)
+                  let jRadius = view.bounds.height * 0.16
+                  
+                  // Movement Joystick: Configured with Dynamic Floating Anchorage on the Left Sector
+                  moveJoystick = AAAJoystickView(radius: jRadius, isDynamic: true)
+                  moveJoystick.center = CGPoint(x: jRadius + 50, y: view.bounds.height - jRadius - 50)
                   view.addSubview(moveJoystick)
                   
-                  aimJoystick = JoystickView(radius: jR)
-                  aimJoystick.center = CGPoint(x: view.bounds.width - jR - 30, y: view.bounds.height - jR - 30)
+                  // Aiming Joystick: Static High-Precision layout on the Right Sector
+                  aimJoystick = AAAJoystickView(radius: jRadius, isDynamic: false)
+                  aimJoystick.center = CGPoint(x: view.bounds.width - jRadius - 50, y: view.bounds.height - jRadius - 50)
                   view.addSubview(aimJoystick)
               }
 
               override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
                       let pt = t.location(in: view)
-                      if moveJoystick.frame.contains(pt) && moveJoystick.trackingTouch == nil {
-                          moveJoystick.trackingTouch = t
-                      } else if aimJoystick.frame.contains(pt) && aimJoystick.trackingTouch == nil {
-                          aimJoystick.trackingTouch = t; lastAimPt = pt
+                      if pt.x < view.bounds.width / 2 {
+                          if moveJoystick.trackingTouch == nil {
+                              moveJoystick.anchorAndBeginTrack(t, in: view)
+                          }
+                      } else {
+                          if aimJoystick.trackingTouch == nil && !hudView.shootBtn.frame.contains(pt) && !hudView.reloadBtn.frame.contains(pt) {
+                              aimJoystick.anchorAndBeginTrack(t, in: view)
+                              lastAimPt = pt
+                          }
                       }
                   }
               }
               
               override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
-                      let pt = t.location(in: view)
-                      if t === moveJoystick.trackingTouch { moveJoystick.moveTouch(t, in: view) }
-                      else if t === aimJoystick.trackingTouch {
-                          aimJoystick.moveTouch(t, in: view)
-                          cameraYaw -= Float(pt.x - lastAimPt.x) * 0.005
-                          lastAimPt = pt
+                      if t === moveJoystick.trackingTouch {
+                          moveJoystick.updateTouchPosition(t, in: view)
+                      } else if t === aimJoystick.trackingTouch {
+                          aimJoystick.updateTouchPosition(t, in: view)
+                          let currentPt = t.location(in: view)
+                          
+                          // Multi-axis Camera panning computations
+                          cameraYaw -= Float(currentPt.x - lastAimPt.x) * 0.0045
+                          cameraPitch -= Float(currentPt.y - lastAimPt.y) * 0.003
+                          cameraPitch = max(-0.6, min(0.6, cameraPitch)) // Avoid camera inversion flips
+                          
+                          lastAimPt = currentPt
                       }
                   }
               }
               
               override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
                   for t in touches {
-                      if t === moveJoystick.trackingTouch { moveJoystick.reset() }
-                      if t === aimJoystick.trackingTouch { aimJoystick.reset() }
+                      if t === moveJoystick.trackingTouch { moveJoystick.terminateTracking() }
+                      if t === aimJoystick.trackingTouch { aimJoystick.terminateTracking() }
                   }
               }
               
               func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
                   DispatchQueue.main.async { [weak self] in
                       guard let s = self else { return }
-                      s.hudView.update(ammo: s.ammo, totalAmmo: s.totalAmmo, isReloading: s.isReloading, reloadProgress: s.reloadProgress)
+                      s.hudView.update(ammo: s.ammo, totalAmmo: s.totalAmmo, isReloading: s.isReloading, reloadProgress: s.reloadProgress, sprinting: s.moveJoystick.isSprinting)
                   }
+                  
+                  // Compute vector forces based on AAA Controller outputs
+                  let moveVec = moveJoystick.outputVector
+                  if moveVec != .zero {
+                      let speedMultiplier: Float = moveJoystick.isSprinting ? 5.5 : 2.5
+                      let forwardX = sin(cameraYaw) * moveVec.y
+                      let forwardZ = cos(cameraYaw) * moveVec.y
+                      let strafeX = sin(cameraYaw + .pi/2) * moveVec.x
+                      let strafeZ = cos(cameraYaw + .pi/2) * moveVec.x
+                      
+                      playerNode.position.x += (forwardX + strafeX) * 0.016 * speedMultiplier
+                      playerNode.position.z += (forwardZ + strafeZ) * 0.016 * speedMultiplier
+                  }
+                  
                   playerChar.eulerAngles.y = cameraYaw
+                  cameraNode.eulerAngles.x = cameraPitch
               }
           }
           SWIFT_EOF
 
-      # ── Project Configuration (FIXED INFO.PLIST) ─────────────────────────────
+      # ── Project Configuration (FULL BUNDLE IDENTIFICATION FIX) ──────────────
       - name: Generate Xcode Project
         run: |
           cat > SV3D/project.yml << 'YAML_EOF'
@@ -515,5 +670,5 @@ jobs:
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ShadowVillage3D-PUBG-Edition
+          name: ShadowVillage3D-PUBG-AAA-Edition
           path: ShadowVillage3D-PUBG.ipa
