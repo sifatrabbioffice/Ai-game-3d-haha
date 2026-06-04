@@ -1,697 +1,261 @@
-name: Build Unsigned AAA Game IPA
+name: Build GameHub IPA (All-in-One)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-ios:
-    # Upgraded to macos-15 to natively provide the Xcode 16+ toolchain
-    runs-on: macos-15
+  build:
+    runs-on: macos-latest
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Latest Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.app
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Create Project Directory Structure
+      - name: Create Full Project Structure
         run: |
-          mkdir -p AAAGame/Sources
-          mkdir -p AAAGame/Resources
+          mkdir -p GameHub/GameHub/Sources/{Input,Game,Views}
+          mkdir -p GameHub/GameHub/Resources
 
-      - name: Generate Project Specification (project.yml)
-        run: |
-          cat << 'EOF' > project.yml
-          name: AAAGame
+          # ==================== Project.yml (XcodeGen) ====================
+          cat > GameHub/project.yml << 'EOF'
+          name: GameHub
           options:
-            bundleIdPrefix: com.premium.architecture
+            bundleIdPrefix: com.gamehub
             deploymentTarget:
-              iOS: "15.0"
+              iOS: "17.0"
+            usesTabs: false
+            indentWidth: 4
+            tabWidth: 4
+
           targets:
-            AAAGame:
+            GameHub:
               type: application
               platform: iOS
+              deploymentTarget: "17.0"
               sources:
-                - path: AAAGame/Sources
+                - path: GameHub/Sources
+                - path: GameHub/Resources
+              settings:
+                base:
+                  CODE_SIGN_IDENTITY: ""
+                  CODE_SIGNING_REQUIRED: NO
+                  CODE_SIGNING_ALLOWED: NO
+                  ENABLE_BITCODE: NO
+              dependencies:
+                - framework: GameController
+                - framework: CoreHaptics
+                - framework: SpriteKit
               info:
-                path: AAAGame/Info.plist
+                path: GameHub/Info.plist
                 properties:
                   UILaunchScreen: {}
-                  UISupportedInterfaceOrientations:
-                    - UIInterfaceOrientationLandscapeLeft
-                    - UIInterfaceOrientationLandscapeRight
-                  UIRequiresFullScreen: true
-              settings:
-                CODE_SIGNING_ALLOWED: NO
-                CODE_SIGNING_REQUIRED: NO
-                CODE_SIGN_IDENTITY: ""
-                PROVISIONING_PROFILE_SPECIFIER: ""
-                DEVELOPMENT_TEAM: ""
+                  UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
           EOF
 
-      - name: Generate Info.plist
-        run: |
-          cat << 'EOF' > AAAGame/Info.plist
+          # ==================== Info.plist ====================
+          cat > GameHub/GameHub/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>CFBundleDevelopmentRegion</key>
-              <string>en</string>
-              <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
               <key>CFBundleIdentifier</key>
-              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
+              <string>com.gamehub.GameHub</string>
               <key>CFBundleName</key>
-              <string>$(PRODUCT_NAME)</string>
-              <key>CFBundlePackageType</key>
-              <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+              <string>GameHub</string>
+              <key>CFBundleVersion</key>
+              <string>1.0</string>
               <key>CFBundleShortVersionString</key>
               <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>UIRequiredDeviceCapabilities</key>
-              <array>
-                  <string>armv7</string>
-              </array>
-              <key>UISupportedInterfaceOrientations~ipad</key>
-              <array>
-                  <string>UIInterfaceOrientationLandscapeLeft</string>
-                  <string>UIInterfaceOrientationLandscapeRight</string>
-              </array>
+              <key>CFBundleExecutable</key>
+              <string>GameHub</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
           </dict>
           </plist>
           EOF
 
-      - name: Generate Swift Source - Application Entry
-        run: |
-          cat << 'EOF' > AAAGame/Sources/AAAGameApp.swift
+          # ==================== ControllerInput.swift ====================
+          cat > GameHub/GameHub/Sources/Input/ControllerInput.swift << 'SWIFT'
+          import GameController
+          import CoreHaptics
+          import Combine
+
+          class ControllerInput: ObservableObject {
+              static let shared = ControllerInput()
+              
+              @Published var leftStick: CGPoint = .zero
+              @Published var rightStick: CGPoint = .zero
+              @Published var pressedButtons: Set<String> = []
+              
+              private var hapticEngine: CHHapticEngine?
+              private var gcController: GCVirtualController?
+              private var cancellables = Set<AnyCancellable>()
+              
+              private init() {
+                  setupHaptics()
+                  setupVirtualController()
+              }
+              
+              private func setupVirtualController() {
+                  let config = GCVirtualController.Configuration()
+                  config.elements = [
+                      GCInputLeftThumbstick, GCInputRightThumbstick,
+                      GCInputButtonA, GCInputButtonB, GCInputButtonX, GCInputButtonY,
+                      GCInputLeftShoulder, GCInputRightShoulder,
+                      GCInputLeftTrigger, GCInputRightTrigger
+                  ]
+                  gcController = GCVirtualController(configuration: config)
+                  gcController?.connect()
+              }
+              
+              private func setupHaptics() {
+                  guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+                  do {
+                      hapticEngine = try CHHapticEngine()
+                      try hapticEngine?.start()
+                  } catch {}
+              }
+              
+              func triggerButtonHaptic(intensity: Float = 0.7) {
+                  guard let engine = hapticEngine else { return }
+                  let event = CHHapticEvent(
+                      eventType: .hapticTransient,
+                      parameters: [
+                          CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                          CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.5)
+                      ],
+                      relativeTime: 0
+                  )
+                  do {
+                      let pattern = try CHHapticPattern(events: [event], parameters: [])
+                      let player = try engine.makePlayer(with: pattern)
+                      try player.start(atTime: CHHapticTimeImmediate)
+                  } catch {}
+              }
+              
+              func xinputToWineVK(_ button: String) -> UInt32 {
+                  let map: [String: UInt32] = [
+                      "Cross": 0x58, "Circle": 0x42, "Square": 0x41, "Triangle": 0x59,
+                      "L1": 0x51, "R1": 0x45, "L2": 0x4C, "R2": 0x52,
+                  ]
+                  return map[button] ?? 0
+              }
+          }
+          SWIFT
+
+          # ==================== GameScene.swift ====================
+          cat > GameHub/GameHub/Sources/Game/GameScene.swift << 'SWIFT'
+          import SpriteKit
+          import Combine
+
+          class GameScene: SKScene {
+              let controller = ControllerInput.shared
+              private var player: SKSpriteNode!
+              private var cancellables = Set<AnyCancellable>()
+              
+              override func didMove(to view: SKView) {
+                  backgroundColor = .black
+                  scaleMode = .resizeFill
+                  
+                  player = SKSpriteNode(color: .systemBlue, size: CGSize(width: 60, height: 60))
+                  player.position = CGPoint(x: frame.midX, y: frame.midY)
+                  addChild(player)
+                  
+                  // Controller binding
+                  controller.$leftStick
+                      .sink { [weak self] stick in
+                          guard let self = self else { return }
+                          self.player.position.x += stick.x * 8
+                          self.player.position.y += stick.y * 8
+                      }
+                      .store(in: &cancellables)
+              }
+              
+              override func update(_ currentTime: TimeInterval) {
+                  // Add more game logic here
+              }
+          }
+          SWIFT
+
+          # ==================== GameHubApp.swift ====================
+          cat > GameHub/GameHub/Sources/Views/GameHubApp.swift << 'SWIFT'
           import SwiftUI
+          import SpriteKit
 
           @main
-          struct AAAGameApp: App {
+          struct GameHubApp: App {
               var body: some Scene {
                   WindowGroup {
                       ContentView()
                   }
               }
           }
-          EOF
-
-      - name: Generate Swift Source - UI Layers (Menus & Settings)
-        run: |
-          cat << 'EOF' > AAAGame/Sources/ContentView.swift
-          import SwiftUI
-          import AVFAudio
-
-          enum AppState {
-              case mainMenu
-              case settings
-              case gaming
-          }
-
-          enum CharacterModel: String, CaseIterable, Identifiable {
-              case cyberKnight = "Titanium Knight"
-              case neonPhantom = "Spectral Neon"
-              case quantumSpecter = "Quantum Ghost"
-              var id: String { self.rawValue }
-          }
 
           struct ContentView: View {
-              @State private var currentState: AppState = .mainMenu
-              @State private var selectedCharacter: CharacterModel = .cyberKnight
-              @State private var soundEffectsVolume: Float = 0.8
-              @State private var musicVolume: Float = 0.5
-              @State private var engine: AVAudioEngine = AVAudioEngine()
+              var scene: SKScene {
+                  let scene = GameScene(size: CGSize(width: 1280, height: 720))
+                  scene.scaleMode = .fill
+                  return scene
+              }
               
               var body: some View {
-                  ZStack {
-                      Color.black.ignoresSafeArea()
-                      
-                      switch currentState {
-                      case .mainMenu:
-                          MainMenuView(currentState: $currentState)
-                      case .settings:
-                          SettingsView(
-                              currentState: $currentState,
-                              selectedCharacter: $selectedCharacter,
-                              fxVolume: $soundEffectsVolume,
-                              musicVolume: $musicVolume,
-                              triggerSound: { playProceduralSound() }
-                          )
-                      case .gaming:
-                          GamePlayView(currentState: $currentState, character: selectedCharacter)
+                  SpriteView(scene: scene, options: [.allowsTransparency])
+                      .ignoresSafeArea()
+                      .onAppear {
+                          ControllerInput.shared.gcController?.connect()
                       }
-                  }
-                  .supportedOrientations(.landscape)
-              }
-              
-              private func playProceduralSound() {
-                  let mainMixer = engine.mainMixerNode
-                  let osc = AVAudioSourceNode { _, _, frameCount, audioBufferList in
-                      let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-                      for frame in 0..<Int(frameCount) {
-                          let val = sinf(Float(frame) * 0.05) * soundEffectsVolume
-                          for buffer in ablPointer {
-                              let buf: UnsafeMutableBufferPointer<Float> = UnsafeMutableBufferPointer(buffer)
-                              buf[frame] = val
-                          }
-                      }
-                      return noErr
-                  }
-                  engine.attach(osc)
-                  engine.connect(osc, to: mainMixer, format: nil)
-                  try? engine.start()
-                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                      self.engine.stop()
-                  }
               }
           }
+          SWIFT
 
-          struct MainMenuView: View {
-              @Binding var currentState: AppState
-              
-              var body: some View {
-                  VStack(spacing: 25) {
-                      Text("CHRONO DRIVE: OVERDRIVE")
-                          .font(.system(size: 38, weight: .black, design: .monospaced))
-                          .foregroundColor(.white)
-                          .tracking(6)
-                          .shadow(color: .blue, radius: 10)
-                      
-                      Text("NEXT-GEN AAA MOBILE ENVIRONMENT")
-                          .font(.system(size: 12, weight: .bold, design: .serif))
-                          .foregroundColor(.gray)
-                      
-                      HStack(spacing: 20) {
-                          Button(action: { currentState = .gaming }) {
-                              Text("LAUNCH SIMULATION")
-                                  .font(.system(size: 16, weight: .bold, design: .monospaced))
-                                  .foregroundColor(.black)
-                                  .padding(.horizontal, 30)
-                                  .padding(.vertical, 15)
-                                  .background(Color.white)
-                                  .cornerRadius(5)
-                          }
-                          
-                          Button(action: { currentState = .settings }) {
-                              Text("CONFIG TARGET")
-                                  .font(.system(size: 16, weight: .bold, design: .monospaced))
-                                  .foregroundColor(.white)
-                                  .padding(.horizontal, 30)
-                                  .padding(.vertical, 15)
-                                  .background(Color.blue.opacity(0.3))
-                                  .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.blue, lineWidth: 2))
-                          }
-                      }
-                  }
-              }
-          }
-
-          struct SettingsView: View {
-              @Binding var currentState: AppState
-              @Binding var selectedCharacter: CharacterModel
-              @Binding var fxVolume: Float
-              @Binding var musicVolume: Float
-              var triggerSound: () -> Void
-              
-              var body: some View {
-                  ScrollView {
-                      VStack(alignment: .leading, spacing: 20) {
-                          HStack {
-                              Text("SYSTEM CONFIGURATION")
-                                  .font(.system(size: 22, weight: .heavy, design: .monospaced))
-                                  .foregroundColor(.white)
-                              Spacer()
-                              Button(action: { currentState = .mainMenu }) {
-                                  Text("SAVE & RETURN")
-                                      .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                      .foregroundColor(.black)
-                                      .padding(10)
-                                      .background(Color.green)
-                                      .cornerRadius(4)
-                              }
-                          }
-                          .padding(.bottom, 10)
-                          
-                          Divider().background(Color.gray)
-                          
-                          Text("AV CONTROL ENGINE")
-                              .font(.caption)
-                              .foregroundColor(.blue)
-                          
-                          VStack {
-                              HStack {
-                                  Text("FX Volume").foregroundColor(.white).frame(width: 120, alignment: .leading)
-                                  Slider(value: $fxVolume, in: 0...1) { _ in triggerSound() }
-                              }
-                              HStack {
-                                  Text("Music Mix").foregroundColor(.white).frame(width: 120, alignment: .leading)
-                                  Slider(value: $musicVolume, in: 0...1)
-                              }
-                          }
-                          
-                          Divider().background(Color.gray)
-                          
-                          Text("EXECUTIVE CHASSIS SELECTION (AAA SUIT)")
-                              .font(.caption)
-                              .foregroundColor(.blue)
-                          
-                          HStack(spacing: 15) {
-                              ForEach(CharacterModel.allCases) { model in
-                                  Button(action: { selectedCharacter = model }) {
-                                      Text(model.rawValue)
-                                          .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                          .foregroundColor(selectedCharacter == model ? .black : .white)
-                                          .padding(12)
-                                          .background(selectedCharacter == model ? Color.cyan : Color.white.opacity(0.1))
-                                          .cornerRadius(6)
-                                  }
-                              }
-                          }
-                          
-                          Divider().background(Color.gray)
-                          
-                          Text("DEVELOPER ENVIRONMENT UTILITIES")
-                              .font(.caption)
-                              .foregroundColor(.blue)
-                          
-                          HStack(spacing: 20) {
-                              Button(action: {}) {
-                                  Label("SRC REPO LINK", systemImage: "link").font(.footnote).foregroundColor(.yellow)
-                              }
-                              Button(action: {}) {
-                                  Label("FETCH PACKAGE", systemImage: "arrow.down.circle").font(.footnote).foregroundColor(.yellow)
-                              }
-                              Button(action: {}) {
-                                  Label("GEN MATRIX CODE", systemImage: "qrcode").font(.footnote).foregroundColor(.yellow)
-                              }
-                          }
-                          .padding(.top, 5)
-                      }
-                      .padding(30)
-                  }
-              }
-          }
-
-          struct ViewRotationModifier: ViewModifier {
-              let orientation: UIInterfaceOrientationMask
-              func body(content: Content) -> some View {
-                  content.onAppear {
-                      if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                          windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation))
-                      }
-                  }
-              }
-          }
-
-          extension View {
-              func supportedOrientations(_ orientation: UIInterfaceOrientationMask) -> some View {
-                  self.modifier(ViewRotationModifier(orientation: orientation))
-              }
-          }
-          EOF
-
-      - name: Generate Swift Source - Game Engine Layer
+      - name: Generate Xcode Project
         run: |
-          cat << 'EOF' > AAAGame/Sources/GameEngineView.swift
-          import SwiftUI
-          import SceneKit
+          cd GameHub
+          xcodegen generate
 
-          struct GamePlayView: View {
-              @Binding var currentState: AppState
-              var character: CharacterModel
-              
-              @State private var joystickTranslation: CGSize = .zero
-              @State private var isDragging: Bool = false
-              @State private var movementVector: CGPoint = .zero
-              
-              var body: some View {
-                  ZStack {
-                      SceneKitWrapper(movementVector: $movementVector, selectedCharacter: character)
-                          .ignoresSafeArea()
-                      
-                      // UI HUD Overlay
-                      VStack {
-                          HStack {
-                              Button(action: { currentState = .mainMenu }) {
-                                  Image(systemName: "escape")
-                                      .font(.title2)
-                                      .foregroundColor(.white)
-                                      .padding()
-                                      .background(Color.black.opacity(0.5))
-                                      .clipShape(Circle())
-                              }
-                              .padding(.leading, 20)
-                              .padding(.top, 20)
-                              Spacer()
-                              Text("PERFORMANCE: 60 FPS")
-                                  .font(.system(.caption, design: .monospaced))
-                                  .foregroundColor(.green)
-                                  .padding(8)
-                                  .background(Color.black.opacity(0.6))
-                                  .cornerRadius(5)
-                                  .padding(.trailing, 20)
-                                  .padding(.top, 20)
-                          }
-                          Spacer()
-                      }
-                      
-                      // DualSense PS5 Inspired Tactile Joystick Interface
-                      VStack {
-                          Spacer()
-                          HStack {
-                              ZStack {
-                                  // Outer Housing Ring
-                                  Circle()
-                                      .stroke(Color.white.opacity(0.3), lineWidth: 4)
-                                      .background(Circle().fill(Color.black.opacity(0.25)))
-                                      .frame(width: 130, height: 130)
-                                      .overlay(
-                                          Circle()
-                                              .stroke(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
-                                      )
-                                  
-                                  // Inner Mechanical Knob
-                                  Circle()
-                                      .fill(LinearGradient(colors: [.gray, .darkGray], startPoint: .top, endPoint: .bottom))
-                                      .frame(width: 65, height: 65)
-                                      .shadow(color: .black.opacity(0.6), radius: 5, x: 0, y: 4)
-                                      .offset(joystickTranslation)
-                                      .gesture(
-                                          DragGesture(minimumDistance: 0)
-                                              .onChanged { value in
-                                                  isDragging = true
-                                                  let limit: CGFloat = 50
-                                                  let x = value.translation.width
-                                                  let y = value.translation.height
-                                                  let distance = sqrt(x*x + y*y)
-                                                  
-                                                  if distance <= limit {
-                                                      joystickTranslation = value.translation
-                                                  } else {
-                                                      joystickTranslation = CGSize(
-                                                          width: (x / distance) * limit,
-                                                          height: (y / distance) * limit
-                                                      )
-                                                  }
-                                                  
-                                                  // Normalize coordinates across engine plane
-                                                  movementVector = CGPoint(
-                                                      x: joystickTranslation.width / limit,
-                                                      y: joystickTranslation.height / limit
-                                                  )
-                                              }
-                                              .onEnded { _ in
-                                                  withAnimation(.easeOut(duration: 0.15)) {
-                                                      joystickTranslation = .zero
-                                                      movementVector = .zero
-                                                  }
-                                                  isDragging = false
-                                              }
-                                      )
-                              }
-                              .padding(.leading, 50)
-                              .padding(.bottom, 40)
-                              
-                              Spacer()
-                          }
-                      }
-                  }
-              }
-          }
-
-          extension Color {
-              static let darkGray = Color(white: 0.15)
-          }
-
-          struct SceneKitWrapper: UIViewRepresentable {
-              @Binding var movementVector: CGPoint
-              var selectedCharacter: CharacterModel
-              
-              func makeUIView(context: Context) -> SCNView {
-                  let scnView = SCNView()
-                  let scene = SCNScene()
-                  scnView.scene = scene
-                  scnView.preferredFramesPerSecond = 60
-                  scnView.antialiasingMode = .multisampling4X
-                  scnView.rendersContinuously = true
-                  scnView.allowsCameraControl = false
-                  
-                  // Environmental Core Lighting Infrastructure
-                  let ambientLightNode = SCNNode()
-                  ambientLightNode.light = SCNLight()
-                  ambientLightNode.light?.type = .ambient
-                  ambientLightNode.light?.color = UIColor(white: 0.15, alpha: 1.0)
-                  scene.rootNode.addChildNode(ambientLightNode)
-                  
-                  let omniLightNode = SCNNode()
-                  omniLightNode.light = SCNLight()
-                  omniLightNode.light?.type = .omni
-                  omniLightNode.light?.color = UIColor.cyan
-                  omniLightNode.position = SCNVector3(x: 0, y: 15, z: 10)
-                  scene.rootNode.addChildNode(omniLightNode)
-                  
-                  let spotLight = SCNLight()
-                  spotLight.type = .spot
-                  spotLight.color = UIColor.white
-                  spotLight.intensity = 1500
-                  spotLight.castsShadow = true
-                  spotLight.shadowMode = .deferred
-                  let spotNode = SCNNode()
-                  spotNode.light = spotLight
-                  spotNode.position = SCNVector3(0, 18, -10)
-                  spotNode.constraints = [SCNLookAtConstraint(target: scene.rootNode)]
-                  scene.rootNode.addChildNode(spotNode)
-                  
-                  // Set Up Procedural Infinite Road Loop Framework
-                  context.coordinator.buildEnvironment(inside: scene)
-                  context.coordinator.instantiateCharacter(inside: scene, type: selectedCharacter)
-                  
-                  scnView.delegate = context.coordinator
-                  return scnView
-              }
-              
-              func updateUIView(_ uiView: SCNView, context: Context) {
-                  context.coordinator.updateMovementVector(movementVector)
-                  context.coordinator.verifyAndSwapSkin(type: selectedCharacter)
-              }
-              
-              func makeCoordinator() -> GameCoordinator {
-                  GameCoordinator()
-              }
-          }
-
-          class GameCoordinator: NSObject, SCNSceneRendererDelegate {
-              private var movementInput: CGPoint = .zero
-              private var characterNode: SCNNode?
-              private var cameraNode: SCNNode?
-              private var activeSkin: CharacterModel?
-              
-              // Infinite Road Tracking Array System
-              private var segments: [SCNNode] = []
-              private let segmentLength: Float = 60.0
-              private let trackDepthCount = 3
-              
-              func updateMovementVector(_ vector: CGPoint) {
-                  self.movementInput = vector
-              }
-              
-              func buildEnvironment(inside SCNScene: SCNScene) {
-                  // Establish Infinite Grid Roads
-                  for i in 0..<trackDepthCount {
-                      let segment = generateRoadSegment(length: segmentLength)
-                      segment.position = SCNVector3(0, 0, Float(i) * segmentLength)
-                      SCNScene.rootNode.addChildNode(segment)
-                      segments.append(segment)
-                  }
-                  
-                  // Setup Over-The-Shoulder Third Person Tracking Camera Matrix
-                  cameraNode = SCNNode()
-                  let camera = SCNCamera()
-                  camera.zFar = 180
-                  camera.zNear = 0.1
-                  cameraNode?.camera = camera
-                  cameraNode?.position = SCNVector3(0, 5.5, -9.0)
-                  cameraNode?.eulerAngles = SCNVector3(-0.25, Float.pi, 0)
-                  if let cam = cameraNode {
-                      SCNScene.rootNode.addChildNode(cam)
-                  }
-              }
-              
-              private func generateRoadSegment(length: Float) -> SCNNode {
-                  let baseNode = SCNNode()
-                  
-                  let roadGeo = SCNBox(width: 14, height: 0.4, length: CGFloat(length), chamferRadius: 0)
-                  let roadMaterial = SCNMaterial()
-                  roadMaterial.lightingModel = .physicallyBased
-                  roadMaterial.diffuse.contents = UIColor.darkGray
-                  roadMaterial.roughness.contents = 0.4
-                  roadMaterial.metalness.contents = 0.8
-                  roadGeo.materials = [roadMaterial]
-                  
-                  let roadNode = SCNNode(geometry: roadGeo)
-                  roadNode.position = SCNVector3(0, -0.2, length / 2)
-                  baseNode.addChildNode(roadNode)
-                  
-                  // Left Side Glowing Guard Rail Cyber Grid Barrier
-                  let railGeo = SCNBox(width: 0.3, height: 1.2, length: CGFloat(length), chamferRadius: 0)
-                  let railMaterial = SCNMaterial()
-                  railMaterial.lightingModel = .constant
-                  railMaterial.diffuse.contents = UIColor.systemCyan
-                  railGeo.materials = [railMaterial]
-                  
-                  let leftRail = SCNNode(geometry: railGeo)
-                  leftRail.position = SCNVector3(-7, 0.4, length / 2)
-                  let rightRail = SCNNode(geometry: railGeo)
-                  rightRail.position = SCNVector3(7, 0.4, length / 2)
-                  
-                  baseNode.addChildNode(leftRail)
-                  baseNode.addChildNode(rightRail)
-                  return baseNode
-              }
-              
-              func instantiateCharacter(inside SCNScene: SCNScene, type: CharacterModel) {
-                  activeSkin = type
-                  let masterContainer = SCNNode()
-                  masterContainer.position = SCNVector3(0, 0, 5)
-                  
-                  // Procedural Synthesis of a High-Fidelity Futuristic Cyber Armor
-                  let torsoGeo = SCNCylinder(radius: 0.6, height: 1.6)
-                  let armorMat = SCNMaterial()
-                  armorMat.lightingModel = .physicallyBased
-                  armorMat.diffuse.contents = getSkinColor(for: type)
-                  armorMat.metalness.contents = 0.9
-                  armorMat.roughness.contents = 0.1
-                  torsoGeo.materials = [armorMat]
-                  let torsoNode = SCNNode(geometry: torsoGeo)
-                  torsoNode.position = SCNVector3(0, 1.2, 0)
-                  masterContainer.addChildNode(torsoNode)
-                  
-                  let headGeo = SCNSphere(radius: 0.4)
-                  let visorMat = SCNMaterial()
-                  visorMat.lightingModel = .constant
-                  visorMat.diffuse.contents = UIColor.black
-                  headGeo.materials = [armorMat]
-                  let headNode = SCNNode(geometry: headGeo)
-                  headNode.position = SCNVector3(0, 2.3, 0)
-                  masterContainer.addChildNode(headNode)
-                  
-                  // Emissive Holographic Visor Ring Component
-                  let visorGeo = SCNBox(width: 0.5, height: 0.1, length: 0.4, chamferRadius: 0)
-                  let emissiveMat = SCNMaterial()
-                  emissiveMat.lightingModel = .constant
-                  emissiveMat.diffuse.contents = UIColor.orange
-                  visorGeo.materials = [emissiveMat]
-                  let visorNode = SCNNode(geometry: visorGeo)
-                  visorNode.position = SCNVector3(0, 2.3, 0.25)
-                  masterContainer.addChildNode(visorNode)
-                  
-                  characterNode = masterContainer
-                  SCNScene.rootNode.addChildNode(masterContainer)
-              }
-              
-              func verifyAndSwapSkin(type: CharacterModel) {
-                  guard type != activeSkin else { return }
-                  activeSkin = type
-                  if let character = characterNode {
-                      for node in character.childNodes {
-                          if let materials = node.geometry?.materials {
-                              for mat in materials {
-                                  if mat.lightingModel == .physicallyBased {
-                                      mat.diffuse.contents = getSkinColor(for: type)
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }
-              
-              private func getSkinColor(for type: CharacterModel) -> UIColor {
-                  switch type {
-                  case .cyberKnight: return UIColor.lightGray
-                  case .neonPhantom: return UIColor.systemPurple
-                  case .quantumSpecter: return UIColor.systemBlue
-                  }
-              }
-              
-              // Real-Time Frame Render Update Cycle
-              func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-                  guard let character = characterNode, let camera = cameraNode else { return }
-                  
-                  let translationSpeed: Float = 0.35
-                  let rotationSpeed: CGFloat = 0.08
-                  
-                  let dx = Float(movementInput.x) * translationSpeed
-                  let dz = Float(-movementInput.y) * translationSpeed
-                  
-                  // Update Character Coordinate Matrix Spatial Layout
-                  character.position.x += dx
-                  character.position.z += dz
-                  
-                  // Boundary clamp to keep character from falling off the side rails
-                  if character.position.x > 6.2 { character.position.x = 6.2 }
-                  if character.position.x < -6.2 { character.position.x = -6.2 }
-                  
-                  // Handle Mesh Rotation Interp Vectors
-                  if movementInput.x != 0 || movementInput.y != 0 {
-                      let targetedAngle = atan2(movementInput.x, -movementInput.y)
-                      let currentAngle = CGFloat(character.eulerAngles.y)
-                      var delta = targetedAngle - currentAngle
-                      
-                      while delta > .pi { delta -= .pi * 2 }
-                      while delta < -.pi { delta += .pi * 2 }
-                      
-                      character.eulerAngles.y += Float(delta * rotationSpeed)
-                  }
-                  
-                  // Dynamic Fluid Third Person Camera Tracking Follow Math
-                  let targetCamX = character.position.x
-                  let targetCamZ = character.position.z - 9.0
-                  
-                  camera.position.x += (targetCamX - camera.position.x) * 0.1
-                  camera.position.z += (targetCamZ - camera.position.z) * 0.1
-                  camera.position.y = character.position.y + 5.5
-                  
-                  // Real-Time Road Recycler Engine (Procedural Loop Algorithm)
-                  for segment in segments {
-                      if camera.position.z - segment.position.z > segmentLength {
-                          segment.position.z += segmentLength * Float(trackDepthCount)
-                      }
-                  }
-              }
-          }
-          EOF
-
-      - name: Generate Project Base Configurations via XcodeGen
-        run: xcodegen generate
-
-      - name: Compile and Build Unsigned Application Bundle (Release Architecture)
+      - name: Build & Archive
         run: |
-          xcodebuild -project AAAGame.xcodeproj \
-                     -scheme AAAGame \
-                     -configuration Release \
-                     -sdk iphoneos \
-                     CODE_SIGNING_ALLOWED=NO \
-                     CODE_SIGNING_REQUIRED=NO \
-                     CODE_SIGN_IDENTITY="" \
-                     PROVISIONING_PROFILE_SPECIFIER="" \
-                     clean build
+          cd GameHub
+          xcodebuild clean archive \
+            -project GameHub.xcodeproj \
+            -scheme GameHub \
+            -archivePath ./build/GameHub.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 
-      - name: Structure Sideload Ready IPA Archive Payload
+      - name: Export IPA
         run: |
-          mkdir -p Payload
-          cp -r build/Release-iphoneos/AAAGame.app Payload/
-          zip -r AAAGame_Unsigned.ipa Payload
+          cd GameHub
+          cat > ExportOptions.plist << 'EOP'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>teamID</key>
+              <string></string>
+          </dict>
+          </plist>
+          EOP
+          
+          xcodebuild -exportArchive \
+            -archivePath ./build/GameHub.xcarchive \
+            -exportOptionsPlist ./ExportOptions.plist \
+            -exportPath ./build
 
-      - name: Upload Unsigned Production IPA Build Artifact
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AAAGame-Sideload-Unsigned
-          path: AAAGame_Unsigned.ipa
+          name: GameHub-IPA
+          path: GameHub/build/GameHub.ipa
