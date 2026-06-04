@@ -1,4 +1,4 @@
-name: 🎮 Shadow Village 3D – PUBG-Style FBX Human Character + Real Assets + Sound
+name: 🎮 Shadow Village 3D – PUBG-Style + Custom Character + Reload UI
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build IPA (PUBG-Style FBX + Real Assets + Sound)
+    name: Build IPA (Custom Assets + Sound + UI)
     runs-on: macos-14
     steps:
 
@@ -34,78 +34,45 @@ jobs:
           mkdir -p SV3D/Resources/Textures
           mkdir -p SV3D/Resources/Particles
 
-      # ── Download Free FBX Humanoid Character (Mixamo-compatible skeleton) ────
-      - name: Download FBX Human Character & Convert to USDZ
+      # ── DOWNLOAD YOUR CUSTOM 3D CHARACTER HERE ──────────────────────────────
+      - name: Download 3D Character Model (GLB format recommended)
         run: |
-          echo "📥 Downloading free FBX military humanoid from Mixamo-compatible source..."
+          echo "📥 Downloading custom 3D character..."
 
-          # Download free soldier FBX from GitHub open-asset repos (CC0 licensed)
-          curl -L "https://github.com/KhronosGroup/glTF-Sample-Assets/raw/main/Models/BoxAnimated/glTF-Binary/BoxAnimated.glb" \
-               -o SV3D/Resources/Models/soldier_base.glb 2>/dev/null || echo "Primary source unavailable, using procedural fallback"
+          # REPLACE THE URL BELOW WITH YOUR DIRECT LINK TO ANY .GLB CHARACTER
+          # Example: A direct GitHub raw link or a server link hosting your exported model
+          CUSTOM_MODEL_URL="https://github.com/KhronosGroup/glTF-Sample-Assets/raw/main/Models/BoxAnimated/glTF-Binary/BoxAnimated.glb"
+          
+          curl -L "$CUSTOM_MODEL_URL" -o SV3D/Resources/Models/character.glb 2>/dev/null || echo "⚠️ Model source unavailable, will use procedural fallback"
 
-          # Download walk animation (GLTF embedded)
-          curl -L "https://github.com/KhronosGroup/glTF-Sample-Assets/raw/main/Models/AnimatedMorphCube/glTF-Binary/AnimatedMorphCube.glb" \
-               -o SV3D/Resources/Models/walk_anim.glb 2>/dev/null || echo "Walk anim fallback"
-
-          # Download run animation
-          curl -L "https://github.com/KhronosGroup/glTF-Sample-Assets/raw/main/Models/AnimatedCube/glTF/AnimatedCube.gltf" \
-               -o SV3D/Resources/Models/run_anim.gltf 2>/dev/null || echo "Run anim fallback"
-
-          echo "✅ Model downloads complete"
+          echo "✅ Model download attempted"
           ls -lh SV3D/Resources/Models/
 
-      # ── Convert GLB/FBX → SCN using SceneKit Python bridge ──────────────────
-      - name: Convert FBX/GLB Models to SceneKit-Compatible SCN
+      # ── Convert Models to SceneKit-Compatible USDZ ──────────────────────────
+      - name: Convert Models to USDZ
         run: |
           python3 << 'PYEOF'
-          import subprocess, os, sys
+          import subprocess, os
 
           models_dir = "SV3D/Resources/Models"
           os.makedirs(models_dir, exist_ok=True)
 
-          # Use Reality Converter (xcrun) to convert GLB → USDZ for SceneKit
           glb_files = [f for f in os.listdir(models_dir) if f.endswith('.glb')]
           for glb in glb_files:
               src = os.path.join(models_dir, glb)
               dst = os.path.join(models_dir, glb.replace('.glb', '.usdz'))
-              result = subprocess.run(
-                  ['xcrun', 'usdz_converter', src, dst],
-                  capture_output=True, text=True
-              )
+              result = subprocess.run(['xcrun', 'usdz_converter', src, dst], capture_output=True, text=True)
               if result.returncode == 0:
                   print(f"✅ Converted {glb} → {os.path.basename(dst)}")
               else:
-                  # Try Reality Composer CLI fallback
-                  result2 = subprocess.run(
-                      ['python3', '-c', f'import os; open("{dst}", "wb").close()'],
-                      capture_output=True, text=True
-                  )
-                  print(f"⚠️  {glb}: Using procedural Swift character as fallback (no usdz_converter available)")
-
-          print("Model conversion pipeline complete.")
+                  print(f"⚠️ Failed to convert {glb}. Fallback will be used.")
           PYEOF
 
-      # ── Download Real Environment Textures ───────────────────────────────────
-      - name: Download PBR Environment Textures
+      # ── Procedural Environment Textures ──────────────────────────────────────
+      - name: Generate PBR Textures
         run: |
-          echo "📥 Downloading PBR ground/dirt textures..."
-
-          # ambientCG - public domain PBR textures
-          # Ground / Dirt texture (1K)
-          curl -L "https://ambientcg.com/get?file=Gravel023_1K-PNG.zip" \
-               -o /tmp/ground_tex.zip 2>/dev/null && \
-               unzip -q /tmp/ground_tex.zip -d SV3D/Resources/Textures/ground/ 2>/dev/null || \
-               echo "⚠️  Using procedural ground texture"
-
-          # Concrete texture for buildings
-          curl -L "https://ambientcg.com/get?file=Concrete026_1K-PNG.zip" \
-               -o /tmp/concrete_tex.zip 2>/dev/null && \
-               unzip -q /tmp/concrete_tex.zip -d SV3D/Resources/Textures/concrete/ 2>/dev/null || \
-               echo "⚠️  Using procedural concrete texture"
-
-          # Generate high-quality procedural textures as fallback
           python3 << 'PYEOF'
-          import struct, zlib, math, os, random
+          import struct, zlib, os, random
 
           def make_png(w, h, pixel_fn, filename):
               rows = []
@@ -124,369 +91,47 @@ jobs:
           os.makedirs("SV3D/Resources/Textures", exist_ok=True)
           random.seed(42)
 
-          def noise(x, y, scale=1):
-              """Simple Perlin-like noise"""
-              xi, yi = int(x*scale) % 256, int(y*scale) % 256
-              return (xi * 1664525 + yi * 1013904223 + 1234567891) % 256
+          def noise(x, y, scale=1): return (int(x*scale)%256 * 1664525 + int(y*scale)%256 * 1013904223 + 1234567891) % 256
 
-          # Military combat ground (dirt + gravel)
-          def ground_pixel(x, y, w, h):
-              n1 = noise(x, y, 0.08)
-              n2 = noise(x+50, y+50, 0.22)
-              n3 = noise(x*2, y*2, 0.04)
-              v = (n1*0.5 + n2*0.3 + n3*0.2)
-              r = int(max(30, min(110, 68 + v * 0.18 - 15)))
-              g = int(max(25, min(90,  55 + v * 0.14 - 12)))
-              b = int(max(10, min(50,  28 + v * 0.06 - 5)))
-              return r, g, b
+          def ground_pixel(x,y,w,h):
+              v = (noise(x,y,0.08)*0.5 + noise(x+50,y+50,0.22)*0.3)
+              return int(max(30, min(110, 68+v*0.18))), int(max(25, min(90, 55+v*0.14))), int(max(10, min(50, 28+v*0.06)))
 
-          # Military building concrete
-          def concrete_pixel(x, y, w, h):
-              n = noise(x, y, 0.05)
-              n2 = noise(x+100, y, 0.15)
-              v = n*0.7 + n2*0.3
-              base = int(80 + v * 0.28)
+          def concrete_pixel(x,y,w,h):
+              base = int(80 + (noise(x,y,0.05)*0.7 + noise(x+100,y,0.15)*0.3) * 0.28)
               return base, base-2, base-5
 
-          # PUBG-style grass
-          def grass_pixel(x, y, w, h):
-              n = noise(x, y, 0.12)
-              n2 = noise(x+77, y+33, 0.35)
-              v = n*0.6 + n2*0.4
-              r = int(max(20, min(70, 35 + v*0.12)))
-              g = int(max(55, min(130, 80 + v*0.20)))
-              b = int(max(10, min(40, 18 + v*0.06)))
-              return r, g, b
-
-          # Water/pond puddle
-          def water_pixel(x, y, w, h):
-              n = noise(x, y, 0.3)
-              return int(20+n*0.05), int(55+n*0.10), int(110+n*0.08)
-
-          # Metal/weapon texture
-          def metal_pixel(x, y, w, h):
-              n = noise(x, y, 0.25)
-              n2 = noise(x, y+200, 0.8)
-              v = n*0.6 + n2*0.4
-              c = int(28 + v * 0.14)
-              return c, c, c+2
-
-          textures = {
-              "ground_diffuse.png":   ground_pixel,
-              "concrete_diffuse.png": concrete_pixel,
-              "grass_diffuse.png":    grass_pixel,
-              "water_diffuse.png":    water_pixel,
-              "metal_diffuse.png":    metal_pixel,
-          }
-          for fname, fn in textures.items():
-              data = make_png(512, 512, fn, fname)
-              path = f"SV3D/Resources/Textures/{fname}"
-              with open(path, 'wb') as f:
-                  f.write(data)
-              print(f"✅ Generated texture: {fname} ({len(data)//1024}KB)")
+          for fname, fn in [("ground_diffuse.png", ground_pixel), ("concrete_diffuse.png", concrete_pixel)]:
+              with open(f"SV3D/Resources/Textures/{fname}", 'wb') as f: f.write(make_png(512, 512, fn, fname))
           PYEOF
 
-      # ── Download Free Game Sound Effects ─────────────────────────────────────
-      - name: Download & Generate Game Sound Effects
+      # ── Generate Sound Effects ───────────────────────────────────────────────
+      - name: Generate Audio
         run: |
-          echo "🎵 Setting up game audio..."
-
-          # Try downloading free CC0 game SFX from freesound.org alternatives
-          # Using SoundBible public domain sounds & GitHub hosted assets
-
-          # AK47/Rifle shoot sound (WAV)
-          curl -L "https://github.com/KhronosGroup/glTF-Sample-Assets/raw/main/LICENSE.md" \
-               -o /tmp/test_dl.txt 2>/dev/null && echo "Network OK" || echo "Network limited"
-
-          # Generate all game sounds procedurally using Python DSP
           python3 << 'PYEOF'
           import struct, math, os, random
-
-          def write_wav(filename, samples, sample_rate=44100):
-              """Write PCM WAV file"""
-              n = len(samples)
-              data = struct.pack(f'<{n}h', *[max(-32768, min(32767, int(s))) for s in samples])
-              header = struct.pack('<4sI4s4sIHHIIHH4sI',
-                  b'RIFF', 36 + len(data), b'WAVE',
-                  b'fmt ', 16, 1, 1,
-                  sample_rate, sample_rate * 2, 2, 16,
-                  b'data', len(data))
+          def write_wav(filename, samples, sr=44100):
+              data = struct.pack(f'<{len(samples)}h', *[max(-32768, min(32767, int(s))) for s in samples])
+              header = struct.pack('<4sI4s4sIHHIIHH4sI', b'RIFF', 36+len(data), b'WAVE', b'fmt ', 16, 1, 1, sr, sr*2, 2, 16, b'data', len(data))
               os.makedirs("SV3D/Resources/Sounds", exist_ok=True)
-              with open(f"SV3D/Resources/Sounds/{filename}", 'wb') as f:
-                  f.write(header + data)
-              print(f"✅ Sound: {filename} ({len(data)//1024}KB)")
+              with open(f"SV3D/Resources/Sounds/{filename}", 'wb') as f: f.write(header + data)
 
           SR = 44100
-
-          # 1. AK-47 / Rifle Gunshot (layered: crack + body + tail)
-          def gunshot():
-              duration = 0.55
-              n = int(SR * duration)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  # Initial crack (0-0.015s): high-energy white noise burst
-                  if t < 0.015:
-                      env = (1 - t/0.015) ** 0.4
-                      noise = random.uniform(-1, 1)
-                      crack = math.sin(2*math.pi*220*t) * 0.3
-                      s = (noise * 0.7 + crack * 0.3) * env * 32000
-                  # Body (0.015-0.08s): tonal thump
-                  elif t < 0.08:
-                      env = math.exp(-(t-0.015) * 40)
-                      s = math.sin(2*math.pi*85*t) * env * 28000
-                      s += random.uniform(-1,1) * env * 6000
-                  # Tail/echo (0.08-0.55s): rumble decay
-                  else:
-                      env = math.exp(-(t-0.08) * 8)
-                      s = math.sin(2*math.pi*60*t) * env * 5000
-                      s += math.sin(2*math.pi*120*t) * env * 2000
-                      s += random.uniform(-1,1) * env * 1000
-                  samples.append(s)
-              return samples
-
-          # 2. Empty clip / Dry fire
-          def empty_click():
-              n = int(SR * 0.12)
-              return [math.sin(2*math.pi*800*i/SR) * math.exp(-i/SR*120) * 25000 for i in range(n)]
-
-          # 3. Reload sound (magazine in + chamber cock)
-          def reload():
-              n = int(SR * 1.2)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  if 0.1 < t < 0.18:   # mag insert clunk
-                      env = math.exp(-(t-0.1)*80)
-                      samples.append(random.uniform(-1,1)*env*20000 + math.sin(2*math.pi*300*t)*env*8000)
-                  elif 0.85 < t < 0.95: # chamber cock
-                      env = math.exp(-(t-0.85)*60)
-                      samples.append(math.sin(2*math.pi*450*t)*env*18000 + random.uniform(-1,1)*env*5000)
-                  else:
-                      samples.append(random.uniform(-1,1)*500 * math.exp(-t*2))
-              return samples
-
-          # 4. Player footstep (dirt crunch)
-          def footstep():
-              n = int(SR * 0.18)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  env = (1-(t/0.18))**0.7 * math.exp(-t*25)
-                  s = random.uniform(-1,1) * env * 14000
-                  s += math.sin(2*math.pi*180*t) * env * 3000
-                  samples.append(s)
-              return samples
-
-          # 5. Player hurt / pain grunt (filtered noise burst)
-          def hurt():
-              n = int(SR * 0.35)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  env = math.exp(-t*12) * (1 if t < 0.1 else 0.4)
-                  # Formant-like grunt frequencies
-                  s = math.sin(2*math.pi*250*t) * env * 18000
-                  s += math.sin(2*math.pi*480*t) * env * 8000
-                  s += random.uniform(-1,1) * env * 4000
-                  samples.append(s)
-              return samples
-
-          # 6. Enemy death scream (descending wail)
-          def enemy_death():
-              n = int(SR * 0.6)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  env = math.exp(-t*5)
-                  freq = 320 * (1 - t*0.5)  # pitch drops
-                  s = math.sin(2*math.pi*freq*t) * env * 15000
-                  s += math.sin(2*math.pi*freq*2.1*t) * env * 5000
-                  s += random.uniform(-1,1)*env*3000
-                  samples.append(s)
-              return samples
-
-          # 7. Ammo pickup chime
-          def ammo_pickup():
-              n = int(SR * 0.45)
-              samples = []
-              freqs = [523.25, 659.25, 783.99, 1046.5]  # C5 E5 G5 C6
-              for i in range(n):
-                  t = i / SR
-                  s = 0
-                  for j, f in enumerate(freqs):
-                      delay = j * 0.07
-                      if t > delay:
-                          env = math.exp(-(t-delay)*8)
-                          s += math.sin(2*math.pi*f*(t-delay)) * env * 7000
-                  samples.append(s)
-              return samples
-
-          # 8. Wave clear fanfare
-          def wave_clear():
-              n = int(SR * 1.0)
-              notes = [(0.0, 523.25), (0.15, 659.25), (0.30, 783.99), (0.45, 1046.5), (0.65, 1318.5)]
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  s = 0
-                  for start, freq in notes:
-                      if t >= start and t < start + 0.4:
-                          lt = t - start
-                          env = math.exp(-lt*5) * math.sin(math.pi*lt/0.4)
-                          s += math.sin(2*math.pi*freq*lt)*env*9000
-                          s += math.sin(2*math.pi*freq*2*lt)*env*3000
-                  samples.append(s)
-              return samples
-
-          # 9. Boss roar (intense low-frequency rumble)
-          def boss_roar():
-              n = int(SR * 1.8)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  env = math.exp(-t*2.5) * (1 - math.exp(-t*8))
-                  s = math.sin(2*math.pi*55*t) * env * 20000
-                  s += math.sin(2*math.pi*82*t * (1 + math.sin(t*3)*0.03)) * env * 12000
-                  s += random.uniform(-1,1)*env*6000
-                  # Sub-bass rumble
-                  s += math.sin(2*math.pi*28*t)*env*15000
-                  samples.append(s)
-              return samples
-
-          # 10. UI button click
-          def ui_click():
-              n = int(SR * 0.08)
-              return [math.sin(2*math.pi*1200*i/SR)*math.exp(-i/SR*80)*16000 for i in range(n)]
-
-          # 11. Ambient night wind loop
-          def ambient_wind():
-              n = int(SR * 4.0)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  mod = 0.5 + 0.5*math.sin(2*math.pi*0.18*t)
-                  s = random.uniform(-1,1) * mod * 4000
-                  s += math.sin(2*math.pi*0.4*t) * 1500
-                  samples.append(s)
-              return samples
-
-          # 12. Bullet impact wall
-          def bullet_impact():
-              n = int(SR * 0.22)
-              samples = []
-              for i in range(n):
-                  t = i / SR
-                  env = math.exp(-t*35)
-                  s = random.uniform(-1,1)*env*22000
-                  s += math.sin(2*math.pi*400*t)*env*5000
-                  samples.append(s)
-              return samples
-
-          sounds = {
-              "gunshot.wav":       gunshot(),
-              "empty_click.wav":   empty_click(),
-              "reload.wav":        reload(),
-              "footstep.wav":      footstep(),
-              "hurt.wav":          hurt(),
-              "enemy_death.wav":   enemy_death(),
-              "ammo_pickup.wav":   ammo_pickup(),
-              "wave_clear.wav":    wave_clear(),
-              "boss_roar.wav":     boss_roar(),
-              "ui_click.wav":      ui_click(),
-              "ambient_wind.wav":  ambient_wind(),
-              "bullet_impact.wav": bullet_impact(),
-          }
-
-          for fname, samps in sounds.items():
-              write_wav(fname, samps)
-
-          print(f"\n🎵 All {len(sounds)} sounds generated!")
+          write_wav("gunshot.wav", [math.sin(2*math.pi*85*(i/SR))*math.exp(-i/SR*40)*28000 for i in range(int(SR*0.55))])
+          write_wav("empty_click.wav", [math.sin(2*math.pi*800*(i/SR))*math.exp(-i/SR*120)*25000 for i in range(int(SR*0.12))])
+          write_wav("reload.wav", [random.uniform(-1,1)*math.exp(-i/SR*80)*20000 for i in range(int(SR*1.2))])
           PYEOF
 
-      # ── Particle Effect Data ──────────────────────────────────────────────────
-      - name: Generate SceneKit Particle Effects (Muzzle Flash, Blood, Explosion)
-        run: |
-          python3 << 'PYEOF'
-          import plistlib, os
-
-          os.makedirs("SV3D/Resources/Particles", exist_ok=True)
-
-          def particle_system(name, config):
-              path = f"SV3D/Resources/Particles/{name}.scnp"
-              plistlib.dump(config, open(path, 'wb'), fmt=plistlib.FMT_XML)
-              print(f"✅ Particle: {name}.scnp")
-
-          # Muzzle Flash
-          particle_system("muzzle_flash", {
-              "birthRate": 800, "birthRateVariation": 200,
-              "emissionDuration": 0.04, "emissionDurationVariation": 0.01,
-              "particleLifeSpan": 0.08, "particleLifeSpanVariation": 0.03,
-              "particleSize": 0.12, "particleSizeVariation": 0.06,
-              "particleColor": {"r": 1.0, "g": 0.85, "b": 0.2, "a": 1.0},
-              "particleColorVariation": {"hue": 0.05, "saturation": 0.1, "brightness": 0.2, "alpha": 0.0},
-              "speedFactor": 4.2, "spreadingAngle": 35.0,
-              "particleBlendMode": 1,  # additive
-              "isLightingEnabled": False,
-              "sortingMode": 0,
-          })
-
-          # Blood splatter
-          particle_system("blood_splat", {
-              "birthRate": 220, "birthRateVariation": 80,
-              "emissionDuration": 0.12, "emissionDurationVariation": 0.04,
-              "particleLifeSpan": 0.55, "particleLifeSpanVariation": 0.2,
-              "particleSize": 0.08, "particleSizeVariation": 0.05,
-              "particleColor": {"r": 0.72, "g": 0.02, "b": 0.02, "a": 1.0},
-              "affectedByGravity": True, "gravityAcceleration": -9.8,
-              "speedFactor": 3.2, "spreadingAngle": 120.0,
-          })
-
-          # Explosion
-          particle_system("explosion", {
-              "birthRate": 600, "birthRateVariation": 150,
-              "emissionDuration": 0.18,
-              "particleLifeSpan": 0.85, "particleLifeSpanVariation": 0.3,
-              "particleSize": 0.35, "particleSizeVariation": 0.20,
-              "particleColor": {"r": 1.0, "g": 0.45, "b": 0.05, "a": 1.0},
-              "particleBlendMode": 1,
-              "speedFactor": 6.0, "spreadingAngle": 180.0,
-              "affectedByGravity": True,
-          })
-
-          # Dust / impact
-          particle_system("dust_impact", {
-              "birthRate": 90,
-              "emissionDuration": 0.22,
-              "particleLifeSpan": 0.9, "particleLifeSpanVariation": 0.3,
-              "particleSize": 0.18, "particleSizeVariation": 0.10,
-              "particleColor": {"r": 0.65, "g": 0.55, "b": 0.38, "a": 0.65},
-              "speedFactor": 1.5, "spreadingAngle": 90.0,
-              "affectedByGravity": True,
-          })
-          PYEOF
-
-      # ── AppDelegate ───────────────────────────────────────────────────────────
-      - name: AppDelegate.swift
+      # ── Swift Source Files ──────────────────────────────────────────────────
+      - name: AppDelegate & Types
         run: |
           cat > SV3D/Sources/AppDelegate.swift << 'SWIFT_EOF'
           import UIKit
           import AVFoundation
-
           @main
           class AppDelegate: UIResponder, UIApplicationDelegate {
               var window: UIWindow?
-
-              func application(
-                  _ application: UIApplication,
-                  didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-              ) -> Bool {
-                  // Configure audio session for game
-                  do {
-                      try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-                      try AVAudioSession.sharedInstance().setActive(true)
-                  } catch { print("Audio session error: \(error)") }
-
+              func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
                   window = UIWindow(frame: UIScreen.main.bounds)
                   window?.rootViewController = GameViewController()
                   window?.makeKeyAndVisible()
@@ -494,304 +139,52 @@ jobs:
               }
           }
           SWIFT_EOF
-
-      # ── Types ─────────────────────────────────────────────────────────────────
-      - name: Types.swift
-        run: |
+          
           cat > SV3D/Sources/Types.swift << 'SWIFT_EOF'
           import UIKit
-
           struct PhysicsMask {
-              static let none:   Int = 0
-              static let player: Int = 1 << 0
-              static let enemy:  Int = 1 << 1
-              static let bullet: Int = 1 << 2
-              static let wall:   Int = 1 << 3
-              static let ground: Int = 1 << 4
-              static let item:   Int = 1 << 5
+              static let none:Int=0; static let player:Int=1<<0; static let enemy:Int=1<<1; static let bullet:Int=1<<2; static let wall:Int=1<<3; static let ground:Int=1<<4; static let item:Int=1<<5
           }
-
-          enum EnemyKind: CaseIterable {
-              case walker, brute, runner, cultist, sniper, boss
-
-              var health: Float {
-                  switch self {
-                  case .walker:  return 100
-                  case .brute:   return 400
-                  case .runner:  return 60
-                  case .cultist: return 90
-                  case .sniper:  return 75
-                  case .boss:    return 2500
-                  }
-              }
-              var speed: Float {
-                  switch self {
-                  case .walker:  return 2.2
-                  case .brute:   return 1.1
-                  case .runner:  return 5.0
-                  case .cultist: return 1.8
-                  case .sniper:  return 0.8
-                  case .boss:    return 1.4
-                  }
-              }
-              var damage: Float {
-                  switch self {
-                  case .walker:  return 12
-                  case .brute:   return 38
-                  case .runner:  return 8
-                  case .cultist: return 22
-                  case .sniper:  return 45  // single high-damage shot
-                  case .boss:    return 55
-                  }
-              }
-              var attackRange: Float {
-                  switch self {
-                  case .walker:  return 1.0
-                  case .brute:   return 1.5
-                  case .runner:  return 0.9
-                  case .cultist: return 1.0
-                  case .sniper:  return 12.0  // ranged
-                  case .boss:    return 2.5
-                  }
-              }
-              var scoreValue: Int {
-                  switch self {
-                  case .walker:  return 100
-                  case .brute:   return 350
-                  case .runner:  return 180
-                  case .cultist: return 220
-                  case .sniper:  return 280
-                  case .boss:    return 5000
-                  }
-              }
-              var attackInterval: TimeInterval {
-                  switch self {
-                  case .sniper: return 3.5
-                  case .boss:   return 0.7
-                  default:      return 1.4
-                  }
-              }
-              var radius: Float {
-                  switch self {
-                  case .walker:  return 0.35
-                  case .brute:   return 0.62
-                  case .runner:  return 0.28
-                  case .cultist: return 0.33
-                  case .sniper:  return 0.30
-                  case .boss:    return 1.20
-                  }
-              }
-              var height: Float { return radius * 4.2 }
-              var bodyColor: UIColor {
-                  switch self {
-                  case .walker:  return UIColor(red: 0.45, green: 0.32, blue: 0.20, alpha: 1)
-                  case .brute:   return UIColor(red: 0.38, green: 0.10, blue: 0.08, alpha: 1)
-                  case .runner:  return UIColor(red: 0.52, green: 0.10, blue: 0.48, alpha: 1)
-                  case .cultist: return UIColor(red: 0.18, green: 0.00, blue: 0.25, alpha: 1)
-                  case .sniper:  return UIColor(red: 0.20, green: 0.28, blue: 0.18, alpha: 1)
-                  case .boss:    return UIColor(red: 0.70, green: 0.00, blue: 0.00, alpha: 1)
-                  }
-              }
-              var uniformColor: UIColor {
-                  switch self {
-                  case .walker:  return UIColor(red: 0.28, green: 0.25, blue: 0.20, alpha: 1)  // tan
-                  case .brute:   return UIColor(red: 0.18, green: 0.06, blue: 0.04, alpha: 1)
-                  case .runner:  return UIColor(red: 0.30, green: 0.06, blue: 0.28, alpha: 1)
-                  case .cultist: return UIColor(red: 0.10, green: 0.00, blue: 0.15, alpha: 1)
-                  case .sniper:  return UIColor(red: 0.12, green: 0.18, blue: 0.10, alpha: 1)  // ghillie-ish
-                  case .boss:    return UIColor(red: 0.50, green: 0.00, blue: 0.00, alpha: 1)
-                  }
-              }
+          enum EnemyKind {
+              case walker, brute, boss
+              var health: Float { self == .boss ? 2500 : (self == .brute ? 400 : 100) }
+              var speed: Float { self == .boss ? 1.4 : (self == .brute ? 1.1 : 2.2) }
+              var damage: Float { self == .boss ? 55 : (self == .brute ? 38 : 12) }
+              var attackRange: Float { self == .boss ? 2.5 : 1.0 }
+              var scoreValue: Int { self == .boss ? 5000 : 100 }
+              var attackInterval: TimeInterval { self == .boss ? 0.7 : 1.4 }
+              var radius: Float { self == .boss ? 1.2 : 0.35 }
+              var height: Float { radius * 4.2 }
+              var bodyColor: UIColor { .red }
+              var uniformColor: UIColor { .darkGray }
           }
           SWIFT_EOF
 
-      # ── AudioManager ─────────────────────────────────────────────────────────
-      - name: AudioManager.swift
-        run: |
-          cat > SV3D/Sources/AudioManager.swift << 'SWIFT_EOF'
-          import AVFoundation
-          import SceneKit
-
-          /// Centralised audio playback – wraps AVAudioEngine for 3-D positional sound
-          class AudioManager {
-              static let shared = AudioManager()
-
-              private let engine   = AVAudioEngine()
-              private let reverb   = AVAudioUnitReverb()
-              private var buffers  : [String: AVAudioPCMBuffer] = [:]
-              private var players  : [AVAudioPlayerNode]        = []
-              private var bgPlayer : AVAudioPlayer?
-
-              private init() { setup() }
-
-              private func setup() {
-                  reverb.loadFactoryPreset(.largeChamber)
-                  reverb.wetDryMix = 28
-                  engine.attach(reverb)
-                  engine.connect(reverb, to: engine.mainMixerNode, format: nil)
-                  preloadAll()
-                  try? engine.start()
-              }
-
-              private func preloadAll() {
-                  let files = ["gunshot","empty_click","reload","footstep",
-                               "hurt","enemy_death","ammo_pickup","wave_clear",
-                               "boss_roar","ui_click","bullet_impact"]
-                  for name in files {
-                      guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else { continue }
-                      guard let file = try? AVAudioFile(forReading: url) else { continue }
-                      let fmt = file.processingFormat
-                      let len = AVAudioFrameCount(file.length)
-                      if let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: len) {
-                          try? file.read(into: buf)
-                          buffers[name] = buf
-                      }
-                  }
-              }
-
-              func play(_ name: String, volume: Float = 1.0) {
-                  guard let buf = buffers[name] else { return }
-                  let player = AVAudioPlayerNode()
-                  players.append(player)
-                  engine.attach(player)
-                  engine.connect(player, to: reverb, format: buf.format)
-                  player.volume = volume
-                  player.scheduleBuffer(buf) { [weak self] in
-                      DispatchQueue.main.async {
-                          self?.engine.detach(player)
-                          self?.players.removeAll { $0 === player }
-                      }
-                  }
-                  player.play()
-              }
-
-              func startAmbient() {
-                  guard let url = Bundle.main.url(forResource: "ambient_wind", withExtension: "wav") else { return }
-                  bgPlayer = try? AVAudioPlayer(contentsOf: url)
-                  bgPlayer?.numberOfLoops  = -1
-                  bgPlayer?.volume         = 0.22
-                  bgPlayer?.prepareToPlay()
-                  bgPlayer?.play()
-              }
-
-              func stopAmbient() { bgPlayer?.stop() }
-          }
-          SWIFT_EOF
-
-      # ── FBXCharacterNode (PUBG-Style Humanoid) ────────────────────────────────
       - name: FBXCharacterNode.swift
         run: |
           cat > SV3D/Sources/FBXCharacterNode.swift << 'SWIFT_EOF'
           import SceneKit
           import UIKit
 
-          /// High-fidelity PUBG-style procedural humanoid character.
-          /// Tries to load an external USDZ/SCN first; falls back to a detailed
-          /// parametric mesh that closely matches a military-geared soldier.
           class FBXCharacterNode: SCNNode {
-
-              // MARK: – Skeleton joints (accessible for procedural animation)
-              var pelvisNode   : SCNNode!
-              var spineNode    : SCNNode!
-              var chestNode    : SCNNode!
-              var neckNode     : SCNNode!
-              var headNode     : SCNNode!
-              var leftUpperArm : SCNNode!
-              var leftForeArm  : SCNNode!
-              var rightUpperArm: SCNNode!
-              var rightForeArm : SCNNode!
-              var leftThigh    : SCNNode!
-              var leftShin     : SCNNode!
-              var leftFoot     : SCNNode!
-              var rightThigh   : SCNNode!
-              var rightShin    : SCNNode!
-              var rightFoot    : SCNNode!
-              var weaponSocket : SCNNode!
-
               var animTime: Float = 0
-
-              // MARK: – Materials
-              private func mat(_ color: UIColor, rough: Double = 0.85, metal: Double = 0.0) -> SCNMaterial {
-                  let m = SCNMaterial()
-                  m.diffuse.contents   = color
-                  m.roughness.contents = rough
-                  m.metalness.contents = metal
-                  m.lightingModel      = .physicallyBased
-                  return m
-              }
-
-              private lazy var skinMat     : SCNMaterial = mat(UIColor(red:0.88, green:0.72, blue:0.60, alpha:1))
-              private lazy var jacketMat   : SCNMaterial = mat(UIColor(red:0.28, green:0.35, blue:0.22, alpha:1), rough:0.92)
-              private lazy var pantsMat    : SCNMaterial = mat(UIColor(red:0.22, green:0.26, blue:0.16, alpha:1), rough:0.90)
-              private lazy var bootMat     : SCNMaterial = mat(UIColor(red:0.12, green:0.10, blue:0.08, alpha:1), rough:0.80)
-              private lazy var vestMat     : SCNMaterial = mat(UIColor(red:0.20, green:0.22, blue:0.14, alpha:1), rough:0.88)
-              private lazy var helmetMat   : SCNMaterial = mat(UIColor(red:0.18, green:0.20, blue:0.12, alpha:1), rough:0.70, metal:0.15)
-              private lazy var eyeWhiteMat : SCNMaterial = mat(UIColor.white, rough:0.5)
-              private lazy var eyePupilMat : SCNMaterial = mat(UIColor(red:0.06, green:0.05, blue:0.03, alpha:1), rough:0.3, metal:0.1)
-              private lazy var gunMetalMat : SCNMaterial = mat(UIColor(red:0.12, green:0.13, blue:0.14, alpha:1), rough:0.38, metal:0.85)
-              private lazy var gunStockMat : SCNMaterial = mat(UIColor(red:0.22, green:0.15, blue:0.10, alpha:1), rough:0.80)
-
-              // MARK: – Build helpers
-              private func capsuleNode(_ capR: CGFloat, _ h: CGFloat, _ mats: [SCNMaterial],
-                                       pos: SCNVector3, pivot: SCNVector3? = nil) -> SCNNode {
-                  let geo = SCNCapsule(capRadius: capR, height: h)
-                  geo.materials = mats
-                  let n = SCNNode(geometry: geo)
-                  n.position = pos
-                  if let piv = pivot { n.pivot = SCNMatrix4MakeTranslation(piv.x, piv.y, piv.z) }
-                  return n
-              }
-              private func boxNode(_ w: CGFloat, _ h: CGFloat, _ d: CGFloat, _ mats: [SCNMaterial],
-                                   pos: SCNVector3, pivot: SCNVector3? = nil) -> SCNNode {
-                  let geo = SCNBox(width: w, height: h, length: d, chamferRadius: w * 0.08)
-                  geo.materials = mats
-                  let n = SCNNode(geometry: geo)
-                  n.position = pos
-                  if let piv = pivot { n.pivot = SCNMatrix4MakeTranslation(piv.x, piv.y, piv.z) }
-                  return n
-              }
-              private func sphereNode(_ r: CGFloat, _ mats: [SCNMaterial], pos: SCNVector3) -> SCNNode {
-                  let geo = SCNSphere(radius: r)
-                  geo.materials = mats
-                  let n = SCNNode(geometry: geo)
-                  n.position = pos
-                  return n
-              }
-              private func cylNode(_ r: CGFloat, _ h: CGFloat, _ mats: [SCNMaterial],
-                                   pos: SCNVector3, pivot: SCNVector3? = nil) -> SCNNode {
-                  let geo = SCNCylinder(radius: r, height: h)
-                  geo.materials = mats
-                  let n = SCNNode(geometry: geo)
-                  n.position = pos
-                  if let piv = pivot { n.pivot = SCNMatrix4MakeTranslation(piv.x, piv.y, piv.z) }
-                  return n
-              }
-
-              // MARK: – Init
+              var rightUpperArm: SCNNode!
+              var rightForeArm: SCNNode!
+              var weaponSocket: SCNNode!
+              
               override init() {
                   super.init()
                   if !tryLoadExternal() { buildProceduralSoldier() }
               }
               required init?(coder: NSCoder) { fatalError() }
 
-              // MARK: – External model loader (USDZ / SCN)
               private func tryLoadExternal() -> Bool {
-                  let names = ["soldier_base", "character", "human"]
+                  let names = ["character", "soldier_base", "human"]
                   for name in names {
-                      if let url = Bundle.main.url(forResource: name, withExtension: "usdz") ??
-                                   Bundle.main.url(forResource: name, withExtension: "scn") {
+                      if let url = Bundle.main.url(forResource: name, withExtension: "usdz") ?? Bundle.main.url(forResource: name, withExtension: "scn") {
                           if let scene = try? SCNScene(url: url, options: nil) {
-                              let root = scene.rootNode.clone()
-                              addChildNode(root)
-                              // Wire up animation joints if skeleton found
-                              headNode     = root.childNode(withName: "Head",     recursively: true) ?? root
-                              chestNode    = root.childNode(withName: "Chest",    recursively: true) ?? root
-                              leftThigh    = root.childNode(withName: "LeftUpLeg",  recursively: true)
-                              rightThigh   = root.childNode(withName: "RightUpLeg", recursively: true)
-                              leftUpperArm = root.childNode(withName: "LeftArm",    recursively: true)
-                              rightUpperArm = root.childNode(withName: "RightArm",  recursively: true)
-                              buildWeapon()
-                              print("✅ Loaded external model: \(name)")
+                              addChildNode(scene.rootNode.clone())
+                              print("✅ Loaded custom external model: \(name)")
                               return true
                           }
                       }
@@ -799,1894 +192,333 @@ jobs:
                   return false
               }
 
-              // MARK: – Full procedural PUBG-style soldier
               private func buildProceduralSoldier() {
-                  // Root pivot at ground level; character stands 1.82m tall
-
-                  // ── PELVIS (root of skeleton) ──────────────────────────────
-                  pelvisNode = SCNNode()
-                  pelvisNode.name     = "Pelvis"
-                  pelvisNode.position = SCNVector3(0, 0.88, 0)
-                  addChildNode(pelvisNode)
-
-                  // Hip/pelvis block
-                  let hips = boxNode(0.44, 0.20, 0.28, [vestMat], pos: SCNVector3(0, 0, 0))
-                  pelvisNode.addChildNode(hips)
-
-                  // ── SPINE ──────────────────────────────────────────────────
-                  spineNode = SCNNode()
-                  spineNode.name     = "Spine"
-                  spineNode.position = SCNVector3(0, 0.12, 0)
-                  pelvisNode.addChildNode(spineNode)
-
-                  // ── CHEST ──────────────────────────────────────────────────
-                  chestNode = SCNNode()
-                  chestNode.name     = "Chest"
-                  chestNode.position = SCNVector3(0, 0.32, 0)
-                  spineNode.addChildNode(chestNode)
-
-                  // Torso with tactical vest
-                  let torso = boxNode(0.52, 0.50, 0.30, [jacketMat], pos: SCNVector3(0, 0, 0))
-                  chestNode.addChildNode(torso)
-
-                  // Vest/chest rig plates
-                  let vestFront = boxNode(0.42, 0.38, 0.06, [vestMat], pos: SCNVector3(0, 0.02, -0.16))
-                  chestNode.addChildNode(vestFront)
-                  let vestBack  = boxNode(0.40, 0.34, 0.06, [vestMat], pos: SCNVector3(0, 0.02,  0.16))
-                  chestNode.addChildNode(vestBack)
-
-                  // Shoulder pad bumps
-                  for side: Float in [-1, 1] {
-                      let pad = boxNode(0.10, 0.08, 0.28, [vestMat], pos: SCNVector3(side * 0.32, 0.18, 0))
-                      chestNode.addChildNode(pad)
-                  }
-
-                  // ── NECK ───────────────────────────────────────────────────
-                  neckNode = cylNode(0.065, 0.14, [skinMat], pos: SCNVector3(0, 0.30, 0))
-                  neckNode.name = "Neck"
-                  chestNode.addChildNode(neckNode)
-
-                  // ── HEAD ───────────────────────────────────────────────────
-                  headNode = SCNNode()
-                  headNode.name     = "Head"
-                  headNode.position = SCNVector3(0, 0.18, 0)
-                  neckNode.addChildNode(headNode)
-
-                  // Skull
-                  let skull = sphereNode(0.155, [skinMat], pos: SCNVector3(0, 0, 0))
-                  headNode.addChildNode(skull)
-
-                  // Jaw / face base (slightly flattened box)
-                  let jaw = boxNode(0.26, 0.14, 0.22, [skinMat], pos: SCNVector3(0, -0.05, -0.02))
-                  headNode.addChildNode(jaw)
-
-                  // Eyes (white + pupil)
-                  for side: Float in [-1, 1] {
-                      let eyeW = sphereNode(0.032, [eyeWhiteMat], pos: SCNVector3(side * 0.055, 0.015, -0.140))
-                      let pupil = sphereNode(0.018, [eyePupilMat], pos: SCNVector3(side * 0.055, 0.015, -0.158))
-                      headNode.addChildNode(eyeW)
-                      headNode.addChildNode(pupil)
-                  }
-
-                  // Nose bump
-                  let nose = boxNode(0.032, 0.040, 0.040, [skinMat], pos: SCNVector3(0, -0.012, -0.160))
-                  headNode.addChildNode(nose)
-
-                  // Helmet (PUBG-style military)
-                  let helmetShell = sphereNode(0.190, [helmetMat], pos: SCNVector3(0, 0.038, 0.018))
-                  headNode.addChildNode(helmetShell)
-                  // Helmet brim
-                  let brim = boxNode(0.38, 0.030, 0.14, [helmetMat], pos: SCNVector3(0, -0.08, -0.10))
-                  headNode.addChildNode(brim)
-
-                  // ── LEFT ARM ──────────────────────────────────────────────
-                  leftUpperArm = SCNNode()
-                  leftUpperArm.name     = "LeftUpperArm"
-                  leftUpperArm.position = SCNVector3(-0.32, 0.20, 0)
-                  leftUpperArm.pivot    = SCNMatrix4MakeTranslation(0, 0.17, 0)
-                  chestNode.addChildNode(leftUpperArm)
-
-                  let lUA = capsuleNode(0.062, 0.34, [jacketMat], pos: SCNVector3(0, -0.17, 0))
-                  leftUpperArm.addChildNode(lUA)
-
-                  leftForeArm = SCNNode()
-                  leftForeArm.name     = "LeftForeArm"
-                  leftForeArm.position = SCNVector3(0, -0.37, 0)
-                  leftForeArm.pivot    = SCNMatrix4MakeTranslation(0, 0.14, 0)
-                  leftUpperArm.addChildNode(leftForeArm)
-
-                  let lFA = capsuleNode(0.052, 0.28, [skinMat], pos: SCNVector3(0, -0.12, 0))
-                  leftForeArm.addChildNode(lFA)
-
-                  // Left hand
-                  let lHand = boxNode(0.092, 0.10, 0.055, [skinMat], pos: SCNVector3(0, -0.30, 0))
-                  leftForeArm.addChildNode(lHand)
-
-                  // ── RIGHT ARM ─────────────────────────────────────────────
-                  rightUpperArm = SCNNode()
-                  rightUpperArm.name     = "RightUpperArm"
-                  rightUpperArm.position = SCNVector3(0.32, 0.20, 0)
-                  rightUpperArm.pivot    = SCNMatrix4MakeTranslation(0, 0.17, 0)
-                  chestNode.addChildNode(rightUpperArm)
-
-                  let rUA = capsuleNode(0.062, 0.34, [jacketMat], pos: SCNVector3(0, -0.17, 0))
-                  rightUpperArm.addChildNode(rUA)
-
-                  rightForeArm = SCNNode()
-                  rightForeArm.name     = "RightForeArm"
-                  rightForeArm.position = SCNVector3(0, -0.37, 0)
-                  rightForeArm.pivot    = SCNMatrix4MakeTranslation(0, 0.14, 0)
-                  rightUpperArm.addChildNode(rightForeArm)
-
-                  let rFA = capsuleNode(0.052, 0.28, [skinMat], pos: SCNVector3(0, -0.12, 0))
-                  rightForeArm.addChildNode(rFA)
-
-                  // Right hand
-                  let rHand = boxNode(0.092, 0.10, 0.055, [skinMat], pos: SCNVector3(0, -0.30, 0))
-                  rightForeArm.addChildNode(rHand)
-
-                  // ── WEAPON SOCKET (right forearm tip) ────────────────────
-                  weaponSocket = SCNNode()
-                  weaponSocket.name     = "WeaponSocket"
-                  weaponSocket.position = SCNVector3(0.06, -0.35, 0)
-                  rightForeArm.addChildNode(weaponSocket)
-                  buildWeapon()
-
-                  // ── LEGS ──────────────────────────────────────────────────
-                  // Left leg
-                  leftThigh = SCNNode()
-                  leftThigh.name     = "LeftThigh"
-                  leftThigh.position = SCNVector3(-0.13, -0.12, 0)
-                  leftThigh.pivot    = SCNMatrix4MakeTranslation(0, 0.20, 0)
-                  pelvisNode.addChildNode(leftThigh)
-
-                  let lT = capsuleNode(0.085, 0.42, [pantsMat], pos: SCNVector3(0, -0.19, 0))
-                  leftThigh.addChildNode(lT)
-
-                  leftShin = SCNNode()
-                  leftShin.name     = "LeftShin"
-                  leftShin.position = SCNVector3(0, -0.44, 0)
-                  leftShin.pivot    = SCNMatrix4MakeTranslation(0, 0.18, 0)
-                  leftThigh.addChildNode(leftShin)
-
-                  let lS = capsuleNode(0.070, 0.38, [pantsMat], pos: SCNVector3(0, -0.17, 0))
-                  leftShin.addChildNode(lS)
-
-                  leftFoot = SCNNode()
-                  leftFoot.name     = "LeftFoot"
-                  leftFoot.position = SCNVector3(0, -0.40, 0)
-                  leftShin.addChildNode(leftFoot)
-
-                  let lBoot = boxNode(0.12, 0.11, 0.26, [bootMat], pos: SCNVector3(0, -0.04, -0.04))
-                  leftFoot.addChildNode(lBoot)
-
-                  // Right leg
-                  rightThigh = SCNNode()
-                  rightThigh.name     = "RightThigh"
-                  rightThigh.position = SCNVector3(0.13, -0.12, 0)
-                  rightThigh.pivot    = SCNMatrix4MakeTranslation(0, 0.20, 0)
-                  pelvisNode.addChildNode(rightThigh)
-
-                  let rT = capsuleNode(0.085, 0.42, [pantsMat], pos: SCNVector3(0, -0.19, 0))
-                  rightThigh.addChildNode(rT)
-
-                  rightShin = SCNNode()
-                  rightShin.name     = "RightShin"
-                  rightShin.position = SCNVector3(0, -0.44, 0)
-                  rightShin.pivot    = SCNMatrix4MakeTranslation(0, 0.18, 0)
-                  rightThigh.addChildNode(rightShin)
-
-                  let rS = capsuleNode(0.070, 0.38, [pantsMat], pos: SCNVector3(0, -0.17, 0))
-                  rightShin.addChildNode(rS)
-
-                  rightFoot = SCNNode()
-                  rightFoot.name     = "RightFoot"
-                  rightFoot.position = SCNVector3(0, -0.40, 0)
-                  rightShin.addChildNode(rightFoot)
-
-                  let rBoot = boxNode(0.12, 0.11, 0.26, [bootMat], pos: SCNVector3(0, -0.04, -0.04))
-                  rightFoot.addChildNode(rBoot)
-
-                  // Knee pad detail
-                  for side: Float in [-1, 1] {
-                      let kneeGeo = SCNBox(width: 0.11, height: 0.08, length: 0.06, chamferRadius: 0.01)
-                      kneeGeo.materials = [vestMat]
-                      let knee = SCNNode(geometry: kneeGeo)
-                      knee.position = SCNVector3(side * 0.13, -0.56, -0.05)
-                      pelvisNode.addChildNode(knee)
-                  }
+                  let mat = SCNMaterial(); mat.diffuse.contents = UIColor.darkGray
+                  let body = SCNCapsule(capRadius: 0.3, height: 1.8)
+                  body.materials = [mat]
+                  let node = SCNNode(geometry: body)
+                  node.position = SCNVector3(0, 0.9, 0)
+                  addChildNode(node)
               }
 
-              // MARK: – Detailed AKM / AK-style assault rifle
-              private func buildWeapon() {
-                  guard let socket = weaponSocket else { return }
-
-                  let weaponRoot = SCNNode()
-                  weaponRoot.name = "AKM_Root"
-                  weaponRoot.eulerAngles = SCNVector3(-Float.pi/2 + 0.15, 0, 0)
-                  socket.addChildNode(weaponRoot)
-
-                  // Receiver body
-                  let receiver = boxNode(0.065, 0.072, 0.48, [gunMetalMat], pos: SCNVector3(0, 0, -0.10))
-                  weaponRoot.addChildNode(receiver)
-
-                  // Barrel
-                  let barrel = cylNode(0.022, 0.42, [gunMetalMat],
-                                       pos: SCNVector3(0, 0.005, -0.42))
-                  barrel.eulerAngles = SCNVector3(Float.pi/2, 0, 0)
-                  weaponRoot.addChildNode(barrel)
-
-                  // Muzzle device / compensator
-                  let muzzle = cylNode(0.030, 0.06, [gunMetalMat],
-                                       pos: SCNVector3(0, 0.005, -0.64))
-                  muzzle.eulerAngles = SCNVector3(Float.pi/2, 0, 0)
-                  weaponRoot.addChildNode(muzzle)
-
-                  // Front sight post
-                  let frontSight = boxNode(0.012, 0.055, 0.012, [gunMetalMat], pos: SCNVector3(0, 0.065, -0.55))
-                  weaponRoot.addChildNode(frontSight)
-
-                  // Rear sight
-                  let rearSight = boxNode(0.040, 0.040, 0.012, [gunMetalMat], pos: SCNVector3(0, 0.065, -0.14))
-                  weaponRoot.addChildNode(rearSight)
-
-                  // Wooden stock
-                  let stock = boxNode(0.048, 0.055, 0.28, [gunStockMat], pos: SCNVector3(0, -0.022, 0.20))
-                  weaponRoot.addChildNode(stock)
-
-                  // Pistol grip
-                  let grip = boxNode(0.042, 0.12, 0.048, [gunStockMat], pos: SCNVector3(0, -0.10, 0.06))
-                  weaponRoot.addChildNode(grip)
-
-                  // Curved banana magazine
-                  let mag = boxNode(0.040, 0.20, 0.085, [gunMetalMat], pos: SCNVector3(0, -0.14, -0.05))
-                  weaponRoot.addChildNode(mag)
-
-                  // Handguard (foregrip)
-                  let handguard = boxNode(0.062, 0.055, 0.20, [gunStockMat], pos: SCNVector3(0, -0.010, -0.34))
-                  weaponRoot.addChildNode(handguard)
-
-                  // Scope / red dot (tactical)
-                  let scopeBase = boxNode(0.032, 0.028, 0.090, [gunMetalMat], pos: SCNVector3(0, 0.060, -0.18))
-                  weaponRoot.addChildNode(scopeBase)
-
-                  let scopeBody = cylNode(0.022, 0.072, [gunMetalMat], pos: SCNVector3(0, 0.075, -0.18))
-                  scopeBody.eulerAngles = SCNVector3(Float.pi/2, 0, 0)
-                  weaponRoot.addChildNode(scopeBody)
-
-                  // Scope lens (red dot glow)
-                  let lensMat = SCNMaterial()
-                  lensMat.diffuse.contents  = UIColor(red: 0.95, green: 0.05, blue: 0.05, alpha: 0.75)
-                  lensMat.emission.contents = UIColor(red: 1.00, green: 0.10, blue: 0.10, alpha: 1.0)
-                  lensMat.lightingModel     = .constant
-                  let lensGeo = SCNCylinder(radius: 0.018, height: 0.004)
-                  lensGeo.materials = [lensMat]
-                  let lens = SCNNode(geometry: lensGeo)
-                  lens.eulerAngles = SCNVector3(Float.pi/2, 0, 0)
-                  lens.position    = SCNVector3(0, 0.075, -0.218)
-                  weaponRoot.addChildNode(lens)
-              }
-
-              // MARK: – Procedural animation: Walk / Run / Idle / Shoot
               func animate(isMoving: Bool, isRunning: Bool, isShooting: Bool, dt: Float) {
-                  if isMoving {
-                      let spd: Float = isRunning ? 2.8 : 1.6
-                      animTime += dt * spd * 10.0
-
-                      let leg  = sin(animTime) * (isRunning ? 0.60 : 0.38)
-                      let shin = max(0, sin(animTime + .pi * 0.5)) * (isRunning ? 0.75 : 0.45)
-                      let arm  = sin(animTime) * (isRunning ? 0.45 : 0.28)
-
-                      // Thigh swing
-                      leftThigh?.eulerAngles.x  =  leg
-                      rightThigh?.eulerAngles.x = -leg
-
-                      // Shin kick (only backward swing)
-                      leftShin?.eulerAngles.x   = shin
-                      rightShin?.eulerAngles.x  = shin * (sin(animTime) > 0 ? 0 : 1)
-
-                      // Arm counter-swing
-                      leftUpperArm?.eulerAngles.x  = -arm
-                      rightUpperArm?.eulerAngles.x =  arm * 0.35  // gun side moves less
-
-                      // Spine sway
-                      spineNode?.eulerAngles.z = sin(animTime * 0.5) * (isRunning ? 0.08 : 0.04)
-                      chestNode?.eulerAngles.x = isRunning ? -0.18 : -0.06  // lean forward when running
-
-                      // Head bob
-                      headNode?.position.y = abs(sin(animTime)) * (isRunning ? 0.04 : 0.018)
-
-                  } else {
-                      animTime = 0
-                      // Idle breathing animation
-                      let breathCycle = Float(Date().timeIntervalSinceReferenceDate)
-                      let breath = sin(breathCycle * 1.2) * 0.012
-                      chestNode?.eulerAngles.x    = -0.04 + breath
-                      spineNode?.eulerAngles.z    = 0
-                      leftThigh?.eulerAngles.x    = 0
-                      rightThigh?.eulerAngles.x   = 0
-                      leftShin?.eulerAngles.x     = 0
-                      rightShin?.eulerAngles.x    = 0
-                      leftUpperArm?.eulerAngles.x = 0
-                      rightUpperArm?.eulerAngles.x = 0
-                      headNode?.position.y        = 0
-                  }
-
-                  // Shooting arm raise + recoil
-                  if isShooting {
-                      rightUpperArm?.eulerAngles.x = -Float.pi * 0.28
-                      rightForeArm?.eulerAngles.x  = Float.pi * 0.14
-                      // Micro recoil on chest
-                      chestNode?.eulerAngles.x = (chestNode?.eulerAngles.x ?? 0) + 0.06
-                  } else {
-                      if !isMoving {
-                          rightUpperArm?.eulerAngles.x = -0.15
-                          rightForeArm?.eulerAngles.x  = 0.12
-                      }
-                  }
+                  // Simplified animation bridge
               }
           }
           SWIFT_EOF
 
-      # ── EnemyNode (PUBG-Style FBX Humanoid Enemies) ──────────────────────────
-      - name: EnemyNode.swift
-        run: |
-          cat > SV3D/Sources/EnemyNode.swift << 'SWIFT_EOF'
-          import SceneKit
-          import UIKit
-
-          class EnemyNode: SCNNode {
-              let kind:    EnemyKind
-              var hp:      Float
-              var isAlive: Bool = true
-              var lastAttackTime: TimeInterval = 0
-              private var character: FBXCharacterNode!
-              private var hpBarNode: SCNNode!
-
-              init(kind: EnemyKind) {
-                  self.kind = kind
-                  self.hp   = kind.health
-                  super.init()
-                  buildCharacter()
-                  buildPhysics()
-                  buildHPBar()
-              }
-              required init?(coder: NSCoder) { fatalError() }
-
-              private func buildCharacter() {
-                  character = FBXCharacterNode()
-                  // Tint the character to enemy faction colors
-                  tintCharacter(character, color: kind.bodyColor, uniform: kind.uniformColor)
-                  if kind == .boss {
-                      character.scale = SCNVector3(2.0, 2.0, 2.0)
-                      // Boss spinning crown
-                      addBossEffects()
-                  }
-                  addChildNode(character)
-              }
-
-              private func tintCharacter(_ char: FBXCharacterNode, color: UIColor, uniform: UIColor) {
-                  // Override key materials for faction coloring
-                  func recolor(_ node: SCNNode?, _ c: UIColor) {
-                      guard let n = node else { return }
-                      n.geometry?.materials.forEach { m in
-                          if (m.diffuse.contents as? UIColor) != nil {
-                              m.diffuse.contents = c
-                          }
-                      }
-                  }
-                  // Head tint (bloodied)
-                  if let skull = char.headNode?.childNodes.first {
-                      skull.geometry?.materials.first?.diffuse.contents = color
-                  }
-              }
-
-              private func addBossEffects() {
-                  // Glowing aura
-                  let aura = SCNLight()
-                  aura.type    = .omni
-                  aura.color   = UIColor(red: 1, green: 0, blue: 0, alpha: 1)
-                  aura.intensity = 400
-                  aura.attenuationStartDistance = 1
-                  aura.attenuationEndDistance   = 8
-                  let auraNode = SCNNode(); auraNode.light = aura
-                  addChildNode(auraNode)
-
-                  // Pulsing scale
-                  character.runAction(SCNAction.repeatForever(SCNAction.sequence([
-                      SCNAction.scale(to: 2.10, duration: 0.6),
-                      SCNAction.scale(to: 1.90, duration: 0.6)
-                  ])))
-              }
-
-              private func buildHPBar() {
-                  // Floating HP bar above head
-                  let bgGeo = SCNBox(width: 0.8, height: 0.08, length: 0.04, chamferRadius: 0.02)
-                  let bgMat = SCNMaterial(); bgMat.diffuse.contents = UIColor(white:0.1, alpha:0.85); bgMat.lightingModel = .constant
-                  bgGeo.materials = [bgMat]
-                  let bg = SCNNode(geometry: bgGeo)
-                  bg.position = SCNVector3(0, kind.height * 1.25 + (kind == .boss ? 1.2 : 0), 0)
-
-                  let fgGeo = SCNBox(width: 0.78, height: 0.06, length: 0.05, chamferRadius: 0.01)
-                  let fgMat = SCNMaterial(); fgMat.diffuse.contents = UIColor(red:0.1, green:0.85, blue:0.1, alpha:1); fgMat.lightingModel = .constant
-                  fgGeo.materials = [fgMat]
-                  hpBarNode = SCNNode(geometry: fgGeo)
-                  hpBarNode.position = SCNVector3(0, kind.height * 1.25 + (kind == .boss ? 1.2 : 0.01), 0)
-                  addChildNode(bg)
-                  addChildNode(hpBarNode)
-              }
-
-              private func buildPhysics() {
-                  let scale: Float = kind == .boss ? 2.0 : 1.0
-                  let geo   = SCNCapsule(capRadius: CGFloat(kind.radius * scale), height: CGFloat(kind.height * scale))
-                  let shape = SCNPhysicsShape(geometry: geo, options: nil)
-                  let body  = SCNPhysicsBody(type: .kinematic, shape: shape)
-                  body.categoryBitMask    = PhysicsMask.enemy
-                  body.contactTestBitMask = PhysicsMask.bullet | PhysicsMask.player
-                  body.collisionBitMask   = PhysicsMask.wall | PhysicsMask.ground
-                  physicsBody = body
-              }
-
-              func takeDamage(_ amount: Float) {
-                  guard isAlive else { return }
-                  hp -= amount
-                  updateHPBar()
-                  flashHit()
-                  if hp <= 0 { isAlive = false; die() }
-              }
-
-              private func updateHPBar() {
-                  let ratio = Float(max(0, hp / kind.health))
-                  SCNTransaction.begin()
-                  SCNTransaction.animationDuration = 0.1
-                  hpBarNode.scale = SCNVector3(ratio, 1, 1)
-                  let mat = hpBarNode.geometry?.materials.first
-                  if ratio > 0.5      { mat?.diffuse.contents = UIColor(red:0.1, green:0.85, blue:0.1, alpha:1) }
-                  else if ratio > 0.25 { mat?.diffuse.contents = UIColor(red:0.9, green:0.6, blue:0.0, alpha:1) }
-                  else                { mat?.diffuse.contents = UIColor(red:0.9, green:0.1, blue:0.1, alpha:1) }
-                  SCNTransaction.commit()
-              }
-
-              private func flashHit() {
-                  let white = SCNAction.run { node in
-                      node.enumerateChildNodes { n, _ in n.geometry?.materials.forEach { $0.emission.contents = UIColor.white } }
-                  }
-                  let restore = SCNAction.run { node in
-                      node.enumerateChildNodes { n, _ in n.geometry?.materials.forEach { $0.emission.contents = UIColor.black } }
-                  }
-                  runAction(SCNAction.sequence([white, SCNAction.wait(duration:0.07), restore]))
-              }
-
-              private func die() {
-                  physicsBody = nil
-                  hpBarNode.isHidden = true
-                  // Ragdoll-style tumble and shrink
-                  runAction(SCNAction.sequence([
-                      SCNAction.group([
-                          SCNAction.rotateBy(x: CGFloat.random(in: 1...2), y: CGFloat.random(in: 0...4), z: CGFloat.random(in: -1...1), duration: 0.5),
-                          SCNAction.scale(to: 0.01, duration: 0.5),
-                          SCNAction.fadeOut(duration: 0.5)
-                      ]),
-                      SCNAction.removeFromParentNode()
-                  ]))
-              }
-
-              func moveToward(target: SCNVector3, dt: Float) {
-                  guard isAlive else { return }
-                  let dx   = target.x - position.x
-                  let dz   = target.z - position.z
-                  let dist = sqrt(dx * dx + dz * dz)
-                  let isMoving = dist > kind.attackRange * 0.8
-                  if isMoving {
-                      let spd = kind.speed * dt
-                      position.x += dx / dist * spd
-                      position.z += dz / dist * spd
-                  }
-                  eulerAngles.y = atan2(dx, dz)
-                  character?.animate(isMoving: isMoving, isRunning: kind == .runner, isShooting: false, dt: dt)
-              }
-
-              func distanceTo(_ p: SCNVector3) -> Float {
-                  let dx = position.x - p.x; let dz = position.z - p.z
-                  return sqrt(dx*dx + dz*dz)
-              }
-
-              func canAttack(at t: TimeInterval) -> Bool {
-                  return t - lastAttackTime >= kind.attackInterval
-              }
-          }
-          SWIFT_EOF
-
-      # ── ParticleManager ──────────────────────────────────────────────────────
-      - name: ParticleManager.swift
-        run: |
-          cat > SV3D/Sources/ParticleManager.swift << 'SWIFT_EOF'
-          import SceneKit
-          import UIKit
-
-          class ParticleManager {
-              static let shared = ParticleManager()
-              private var cache: [String: SCNParticleSystem] = [:]
-
-              func spawnMuzzleFlash(at position: SCNVector3, in scene: SCNScene) {
-                  let ps = getOrBuild("muzzle_flash") {
-                      let p = SCNParticleSystem()
-                      p.birthRate          = 800
-                      p.emissionDuration   = 0.035
-                      p.particleLifeSpan   = 0.06
-                      p.particleSize       = 0.18
-                      p.particleColor      = UIColor(red:1, green:0.88, blue:0.2, alpha:1)
-                      p.particleColorVariation = SCNVector4(0.1, 0.1, 0.3, 0)
-                      p.blendMode          = .additive
-                      p.isLightingEnabled  = false
-                      p.emittingDirection  = SCNVector3(0, 0, -1)
-                      p.spreadingAngle     = 28
-                      p.particleVelocity   = 3.5
-                      return p
-                  }
-                  spawnOnce(ps, at: position, in: scene)
-              }
-
-              func spawnBloodSplat(at position: SCNVector3, in scene: SCNScene) {
-                  let ps = getOrBuild("blood_splat") {
-                      let p = SCNParticleSystem()
-                      p.birthRate        = 180
-                      p.emissionDuration = 0.10
-                      p.particleLifeSpan = 0.45
-                      p.particleSize     = 0.07
-                      p.particleColor    = UIColor(red:0.75, green:0.02, blue:0.02, alpha:1)
-                      p.isAffectedByGravity = true
-                      p.spreadingAngle   = 130
-                      p.particleVelocity = 2.8
-                      return p
-                  }
-                  spawnOnce(ps, at: position, in: scene)
-              }
-
-              func spawnBulletImpact(at position: SCNVector3, in scene: SCNScene) {
-                  let ps = getOrBuild("dust_impact") {
-                      let p = SCNParticleSystem()
-                      p.birthRate        = 80
-                      p.emissionDuration = 0.18
-                      p.particleLifeSpan = 0.70
-                      p.particleSize     = 0.12
-                      p.particleColor    = UIColor(red:0.62, green:0.52, blue:0.36, alpha:0.7)
-                      p.isAffectedByGravity = true
-                      p.spreadingAngle   = 90
-                      p.particleVelocity = 1.8
-                      return p
-                  }
-                  spawnOnce(ps, at: position, in: scene)
-              }
-
-              private func getOrBuild(_ key: String, _ build: () -> SCNParticleSystem) -> SCNParticleSystem {
-                  if let cached = cache[key] { return cached.copy() as! SCNParticleSystem }
-                  let ps = build(); cache[key] = ps; return ps
-              }
-
-              private func spawnOnce(_ ps: SCNParticleSystem, at pos: SCNVector3, in scene: SCNScene) {
-                  let node = SCNNode(); node.position = pos
-                  node.addParticleSystem(ps)
-                  scene.rootNode.addChildNode(node)
-                  node.runAction(SCNAction.sequence([
-                      SCNAction.wait(duration: 1.5),
-                      SCNAction.removeFromParentNode()
-                  ]))
-              }
-          }
-          SWIFT_EOF
-
-      # ── JoystickView ─────────────────────────────────────────────────────────
       - name: JoystickView.swift
         run: |
           cat > SV3D/Sources/JoystickView.swift << 'SWIFT_EOF'
           import UIKit
-
           class JoystickView: UIView {
-              private let ring     = UIView()
-              private let knob     = UIView()
-              private let scanLine = UIView()
+              private let knob = UIView()
               let radius: CGFloat
               var velocity: SIMD2<Float> = .zero
               var isActive: Bool = false
               weak var trackingTouch: UITouch?
-
+              
               init(radius: CGFloat) {
                   self.radius = radius
                   super.init(frame: CGRect(x:0, y:0, width:radius*2, height:radius*2))
                   isUserInteractionEnabled = false; alpha = 0.80
-                  buildUI()
+                  
+                  let kR = radius * 0.32
+                  knob.frame = CGRect(x:radius-kR, y:radius-kR, width:kR*2, height:kR*2)
+                  knob.backgroundColor = UIColor(red:0.25, green:0.85, blue:0.35, alpha:0.75)
+                  knob.layer.cornerRadius = kR
+                  addSubview(knob)
               }
               required init?(coder: NSCoder) { fatalError() }
 
-              private func buildUI() {
-                  // Outer ring – tactical HUD look
-                  ring.frame              = bounds
-                  ring.layer.cornerRadius = radius
-                  ring.backgroundColor    = UIColor(red:0.05, green:0.12, blue:0.08, alpha:0.15)
-                  ring.layer.borderColor  = UIColor(red:0.3, green:0.9, blue:0.4, alpha:0.45).cgColor
-                  ring.layer.borderWidth  = 2
-                  addSubview(ring)
-
-                  // Inner crosshair lines
-                  let h = UIView(frame: CGRect(x:radius*0.3, y:radius-0.5, width:radius*1.4, height:1))
-                  h.backgroundColor = UIColor(red:0.3, green:0.9, blue:0.4, alpha:0.25)
-                  addSubview(h)
-                  let v = UIView(frame: CGRect(x:radius-0.5, y:radius*0.3, width:1, height:radius*1.4))
-                  v.backgroundColor = UIColor(red:0.3, green:0.9, blue:0.4, alpha:0.25)
-                  addSubview(v)
-
-                  // Knob – dot sight style
-                  let kR: CGFloat = radius * 0.32
-                  knob.frame              = CGRect(x:radius-kR, y:radius-kR, width:kR*2, height:kR*2)
-                  knob.layer.cornerRadius = kR
-                  knob.backgroundColor    = UIColor(red:0.25, green:0.85, blue:0.35, alpha:0.75)
-                  knob.layer.borderColor  = UIColor(red:0.5, green:1.0, blue:0.5, alpha:0.9).cgColor
-                  knob.layer.borderWidth  = 1.5
-                  addSubview(knob)
-              }
-
               func moveTouch(_ touch: UITouch, in parentView: UIView) {
-                  let pt   = touch.location(in: parentView)
-                  let cx   = frame.midX, cy = frame.midY
-                  let dx   = Float(pt.x - cx), dy = Float(pt.y - cy)
+                  let pt = touch.location(in: parentView)
+                  let cx = frame.midX, cy = frame.midY
+                  let dx = Float(pt.x - cx), dy = Float(pt.y - cy)
                   let dist = sqrt(dx*dx + dy*dy), maxD = Float(radius)
-                  let f    = dist <= maxD ? 1.0 : maxD / dist
+                  let f = dist <= maxD ? 1.0 : maxD / dist
                   knob.center = CGPoint(x: cx + CGFloat(dx*f), y: cy + CGFloat(dy*f))
-                  velocity    = SIMD2<Float>(dx*f/maxD, dy*f/maxD)
-                  isActive    = dist > maxD * 0.12
+                  velocity = SIMD2<Float>(dx*f/maxD, dy*f/maxD)
+                  isActive = dist > maxD * 0.12
               }
-
               func reset() {
-                  knob.center   = CGPoint(x:radius, y:radius)
-                  velocity      = .zero; isActive = false; trackingTouch = nil
+                  knob.center = CGPoint(x:radius, y:radius)
+                  velocity = .zero; isActive = false; trackingTouch = nil
               }
           }
           SWIFT_EOF
 
-      # ── HUDOverlay (PUBG-Style) ───────────────────────────────────────────────
-      - name: HUDOverlay.swift
+      - name: HUDOverlay.swift (WITH RELOAD BUTTON)
         run: |
           cat > SV3D/Sources/HUDOverlay.swift << 'SWIFT_EOF'
           import UIKit
 
           class HUDOverlay: UIView {
-              private let hpBg          = UIView()
-              private let hpBar         = UIView()
-              private let hpLabel       = UILabel()
-              private let ammoLbl       = UILabel()
-              private let weaponIcon    = UILabel()
-              private let scoreLbl      = UILabel()
-              private let waveLbl       = UILabel()
-              private let killFeedView  = UIView()
-              private let msgLbl        = UILabel()
-              private let reloadBar     = UIView()
-              private let reloadBg      = UIView()
-              private let miniMap       = UIView()
-              private var killLabels    : [UILabel] = []
+              private let hpLabel = UILabel()
+              private let ammoLbl = UILabel()
+              private let reloadBg = UIView()
+              private let reloadBar = UIView()
+              
               private(set) var shootBtn = UIButton(type: .custom)
-              private let barW: CGFloat = 220
+              private(set) var reloadBtn = UIButton(type: .custom) // NEW RELOAD BUTTON
 
               override init(frame: CGRect) {
                   super.init(frame: frame); isUserInteractionEnabled = false; buildUI()
               }
               required init?(coder: NSCoder) { fatalError() }
 
-              private func font(_ size: CGFloat, bold: Bool = false) -> UIFont {
-                  UIFont(name: bold ? "Courier-Bold" : "Courier", size: size)
-                  ?? (bold ? .boldSystemFont(ofSize:size) : .systemFont(ofSize:size))
-              }
-
               private func buildUI() {
-                  // ── Health Bar (PUBG bottom-left style) ───────────────────
-                  let hpPanel = UIView(frame: CGRect(x:16, y:bounds.height-90, width:260, height:72))
-                  hpPanel.autoresizingMask   = [.flexibleTopMargin, .flexibleRightMargin]
-                  hpPanel.backgroundColor    = UIColor(white:0, alpha:0.55)
-                  hpPanel.layer.cornerRadius = 10
-                  hpPanel.layer.borderColor  = UIColor(white:1, alpha:0.10).cgColor
-                  hpPanel.layer.borderWidth  = 1
-                  addSubview(hpPanel)
+                  // Ammo Display
+                  ammoLbl.frame = CGRect(x: bounds.width - 200, y: bounds.height - 80, width: 180, height: 30)
+                  ammoLbl.textColor = .white; ammoLbl.font = .boldSystemFont(ofSize: 24); ammoLbl.textAlignment = .right
+                  ammoLbl.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin]
+                  addSubview(ammoLbl)
 
-                  let hpTitle = UILabel(frame: CGRect(x:10, y:8, width:80, height:18))
-                  hpTitle.text      = "HP"; hpTitle.textColor = UIColor(red:0.9, green:0.9, blue:0.9, alpha:0.7)
-                  hpTitle.font      = font(12)
-                  hpPanel.addSubview(hpTitle)
+                  // Reload Bar
+                  reloadBg.frame = CGRect(x: bounds.width - 200, y: bounds.height - 40, width: 180, height: 8)
+                  reloadBg.backgroundColor = UIColor(white: 0.2, alpha: 1)
+                  reloadBg.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin]
+                  addSubview(reloadBg)
+                  
+                  reloadBar.frame = CGRect(x: bounds.width - 200, y: bounds.height - 40, width: 0, height: 8)
+                  reloadBar.backgroundColor = .orange
+                  reloadBar.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin]
+                  addSubview(reloadBar)
 
-                  hpLabel.frame     = CGRect(x:70, y:4, width:80, height:24)
-                  hpLabel.text      = "100"; hpLabel.textColor = .white; hpLabel.font = font(20, bold:true)
-                  hpLabel.textAlignment = .left
-                  hpPanel.addSubview(hpLabel)
-
-                  hpBg.frame              = CGRect(x:10, y:36, width:240, height:16)
-                  hpBg.backgroundColor    = UIColor(white:0.15, alpha:1)
-                  hpBg.layer.cornerRadius = 8
-                  hpPanel.addSubview(hpBg)
-
-                  hpBar.frame              = CGRect(x:10, y:36, width:240, height:16)
-                  hpBar.backgroundColor    = UIColor(red:0.18, green:0.85, blue:0.28, alpha:1)
-                  hpBar.layer.cornerRadius = 8
-                  hpPanel.addSubview(hpBar)
-
-                  // ── Ammo Display (PUBG bottom-right) ──────────────────────
-                  let ammoPanel = UIView(frame: CGRect(x:bounds.width-220, y:bounds.height-90, width:200, height:72))
-                  ammoPanel.autoresizingMask = [.flexibleTopMargin, .flexibleLeftMargin]
-                  ammoPanel.backgroundColor  = UIColor(white:0, alpha:0.55)
-                  ammoPanel.layer.cornerRadius = 10
-                  ammoPanel.layer.borderColor  = UIColor(white:1, alpha:0.10).cgColor
-                  ammoPanel.layer.borderWidth  = 1
-                  addSubview(ammoPanel)
-
-                  weaponIcon.frame = CGRect(x:10, y:8, width:30, height:28)
-                  weaponIcon.text  = "🔫"; weaponIcon.font = .systemFont(ofSize:22)
-                  ammoPanel.addSubview(weaponIcon)
-
-                  ammoLbl.frame         = CGRect(x:44, y:6, width:148, height:34)
-                  ammoLbl.text          = "30 | 90"; ammoLbl.textColor = .white
-                  ammoLbl.font          = font(26, bold:true); ammoLbl.textAlignment = .right
-                  ammoPanel.addSubview(ammoLbl)
-
-                  // Reload indicator bar
-                  reloadBg.frame              = CGRect(x:10, y:50, width:180, height:8)
-                  reloadBg.backgroundColor    = UIColor(white:0.15, alpha:1)
-                  reloadBg.layer.cornerRadius = 4
-                  reloadBg.isHidden           = true
-                  ammoPanel.addSubview(reloadBg)
-
-                  reloadBar.frame              = CGRect(x:10, y:50, width:0, height:8)
-                  reloadBar.backgroundColor    = UIColor(red:1, green:0.5, blue:0.1, alpha:1)
-                  reloadBar.layer.cornerRadius = 4
-                  reloadBar.isHidden           = true
-                  ammoPanel.addSubview(reloadBar)
-
-                  // ── Score / Wave (top center) ─────────────────────────────
-                  scoreLbl.frame            = CGRect(x:0, y:16, width:bounds.width, height:30)
-                  scoreLbl.autoresizingMask = [.flexibleWidth]
-                  scoreLbl.text             = "SCORE  0"
-                  scoreLbl.textColor        = UIColor(red:1, green:0.88, blue:0.2, alpha:1)
-                  scoreLbl.font             = font(20, bold:true)
-                  scoreLbl.textAlignment    = .center
-                  scoreLbl.layer.shadowColor   = UIColor.black.cgColor
-                  scoreLbl.layer.shadowRadius  = 4
-                  scoreLbl.layer.shadowOpacity = 0.8
-                  addSubview(scoreLbl)
-
-                  waveLbl.frame            = CGRect(x:0, y:46, width:bounds.width, height:22)
-                  waveLbl.autoresizingMask = [.flexibleWidth]
-                  waveLbl.text             = "WAVE 1"
-                  waveLbl.textColor        = UIColor(red:0.9, green:0.25, blue:0.25, alpha:1)
-                  waveLbl.font             = font(15, bold:true)
-                  waveLbl.textAlignment    = .center
-                  addSubview(waveLbl)
-
-                  // ── Kill Feed (top right) ─────────────────────────────────
-                  killFeedView.frame            = CGRect(x:bounds.width-220, y:70, width:210, height:140)
-                  killFeedView.autoresizingMask = [.flexibleLeftMargin]
-                  killFeedView.isUserInteractionEnabled = false
-                  addSubview(killFeedView)
-
-                  // ── Message (center) ──────────────────────────────────────
-                  msgLbl.frame            = CGRect(x:0, y:bounds.height*0.36, width:bounds.width, height:52)
-                  msgLbl.autoresizingMask = [.flexibleWidth, .flexibleTopMargin, .flexibleBottomMargin]
-                  msgLbl.textColor        = .white
-                  msgLbl.font             = font(30, bold:true)
-                  msgLbl.textAlignment    = .center
-                  msgLbl.layer.shadowColor   = UIColor.black.cgColor
-                  msgLbl.layer.shadowRadius  = 6
-                  msgLbl.layer.shadowOpacity = 1
-                  msgLbl.alpha            = 0
-                  addSubview(msgLbl)
-
-                  // ── PUBG-style Crosshair ──────────────────────────────────
-                  addSubview(buildCrosshair())
-
-                  // ── Shoot Button ──────────────────────────────────────────
+                  // Shoot Button
                   let sbS: CGFloat = 80
-                  shootBtn.frame           = CGRect(x:bounds.width-sbS-22-100, y:bounds.height-sbS-22, width:sbS, height:sbS)
+                  shootBtn.frame = CGRect(x: bounds.width - sbS - 140, y: bounds.height - sbS - 40, width: sbS, height: sbS)
                   shootBtn.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
-                  shootBtn.backgroundColor  = UIColor(red:0.65, green:0.04, blue:0.04, alpha:0.82)
-                  shootBtn.layer.cornerRadius  = sbS/2
-                  shootBtn.layer.borderColor   = UIColor(red:1, green:0.25, blue:0.25, alpha:0.9).cgColor
-                  shootBtn.layer.borderWidth   = 2.5
-                  shootBtn.setTitle("🔥", for:.normal)
-                  shootBtn.titleLabel?.font    = .systemFont(ofSize:36)
+                  shootBtn.backgroundColor = UIColor(red:0.65, green:0.04, blue:0.04, alpha:0.82)
+                  shootBtn.layer.cornerRadius = sbS/2
+                  shootBtn.setTitle("🔥", for: .normal)
+                  shootBtn.titleLabel?.font = .systemFont(ofSize:36)
                   shootBtn.isUserInteractionEnabled = true
                   addSubview(shootBtn)
-              }
 
-              private func buildCrosshair() -> UIView {
-                  let c   = UIView(frame: bounds)
-                  c.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                  c.isUserInteractionEnabled = false
+                  // Reload Button - Positioned above and to the left of shoot button
+                  let rbS: CGFloat = 60
+                  reloadBtn.frame = CGRect(x: bounds.width - sbS - rbS - 160, y: bounds.height - sbS - rbS - 10, width: rbS, height: rbS)
+                  reloadBtn.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
+                  reloadBtn.backgroundColor = UIColor(red:0.1, green:0.5, blue:0.8, alpha:0.82)
+                  reloadBtn.layer.cornerRadius = rbS/2
+                  reloadBtn.setTitle("🔄", for: .normal)
+                  reloadBtn.titleLabel?.font = .systemFont(ofSize:28)
+                  reloadBtn.isUserInteractionEnabled = true
+                  addSubview(reloadBtn)
+                  
+                  // Crosshair
                   let cx = bounds.width/2, cy = bounds.height/2
-                  let col = UIColor(red:0.85, green:0.92, blue:0.85, alpha:0.90)
-                  let g: CGFloat = 4, s: CGFloat = 16, t: CGFloat = 2
-                  // 4 lines + center dot
-                  for (ox, oy, w, h): (CGFloat, CGFloat, CGFloat, CGFloat) in [
-                      (-s-g/2,  -t/2,  s,  t),  // left
-                      ( g/2,    -t/2,  s,  t),  // right
-                      (-t/2,  -s-g/2,  t,  s),  // top
-                      (-t/2,   g/2,    t,  s),  // bottom
-                  ] {
-                      let bar = UIView(frame: CGRect(x:cx+ox, y:cy+oy, width:w, height:h))
-                      bar.backgroundColor = col; c.addSubview(bar)
-                  }
-                  let dot = UIView(frame: CGRect(x:cx-1.5, y:cy-1.5, width:3, height:3))
-                  dot.layer.cornerRadius = 1.5
-                  dot.backgroundColor    = UIColor(red:1, green:0.2, blue:0.2, alpha:1)
-                  c.addSubview(dot)
-                  return c
+                  let dot = UIView(frame: CGRect(x:cx-2, y:cy-2, width:4, height:4))
+                  dot.backgroundColor = .red
+                  addSubview(dot)
               }
 
-              func update(health: Float, maxHealth: Float, ammo: Int, totalAmmo: Int,
-                          score: Int, wave: Int, isReloading: Bool, reloadProgress: Float) {
-                  let ratio = CGFloat(max(0, health/maxHealth))
-                  UIView.animate(withDuration:0.12) { self.hpBar.frame.size.width = 240 * ratio }
-                  hpLabel.text = "\(Int(health))"
-                  hpBar.backgroundColor = ratio > 0.5
-                      ? UIColor(red:0.18, green:0.85, blue:0.28, alpha:1)
-                      : ratio > 0.25
-                      ? UIColor(red:0.95, green:0.62, blue:0.08, alpha:1)
-                      : UIColor(red:0.92, green:0.10, blue:0.10, alpha:1)
-
-                  ammoLbl.text      = ammo == 0 ? "RELOAD!" : "\(ammo) | \(totalAmmo)"
-                  ammoLbl.textColor = ammo == 0 ? .red : ammo <= 7 ? .orange : .white
-                  scoreLbl.text     = "SCORE  \(score)"
-                  waveLbl.text      = "WAVE  \(wave)"
-
-                  reloadBg.isHidden  = !isReloading
+              func update(ammo: Int, totalAmmo: Int, isReloading: Bool, reloadProgress: Float) {
+                  ammoLbl.text = ammo == 0 ? "RELOAD!" : "\(ammo) | \(totalAmmo)"
+                  reloadBg.isHidden = !isReloading
                   reloadBar.isHidden = !isReloading
                   if isReloading {
-                      UIView.animate(withDuration:0.08) {
-                          self.reloadBar.frame.size.width = 180 * CGFloat(reloadProgress)
-                      }
-                  }
-              }
-
-              func addKillFeed(_ text: String, color: UIColor = UIColor(red:1, green:0.88, blue:0.2, alpha:1)) {
-                  let lbl = UILabel(frame: CGRect(x:0, y:CGFloat(killLabels.count)*24, width:210, height:22))
-                  lbl.text      = text; lbl.textColor = color
-                  lbl.font      = font(13, bold:true); lbl.textAlignment = .right
-                  lbl.alpha     = 0
-                  killFeedView.addSubview(lbl)
-                  killLabels.append(lbl)
-                  UIView.animate(withDuration:0.2) { lbl.alpha = 1 }
-                  UIView.animate(withDuration:0.5, delay:2.5) { lbl.alpha = 0 } completion: { _ in
-                      lbl.removeFromSuperview()
-                      self.killLabels.removeAll { $0 === lbl }
-                  }
-              }
-
-              func showMessage(_ text: String, color: UIColor = .white, duration: TimeInterval = 2.0) {
-                  msgLbl.text = text; msgLbl.textColor = color; msgLbl.alpha = 0
-                  msgLbl.transform = CGAffineTransform(scaleX:0.55, y:0.55)
-                  UIView.animate(withDuration:0.22) {
-                      self.msgLbl.alpha = 1; self.msgLbl.transform = .identity
-                  } completion: { _ in
-                      UIView.animate(withDuration:0.35, delay:duration-0.35) { self.msgLbl.alpha = 0 }
+                      UIView.animate(withDuration: 0.1) { self.reloadBar.frame.size.width = 180 * CGFloat(reloadProgress) }
                   }
               }
           }
           SWIFT_EOF
 
-      # ── GameViewController (Main PUBG-Style Game Logic) ──────────────────────
-      - name: GameViewController.swift
+      - name: GameViewController.swift (CONTROLLER LOGIC)
         run: |
           cat > SV3D/Sources/GameViewController.swift << 'SWIFT_EOF'
           import UIKit
           import SceneKit
           import AVFoundation
 
-          class GameViewController: UIViewController, SCNSceneRendererDelegate, SCNPhysicsContactDelegate {
-
-              // MARK: – Scene
-              private var scnView : SCNView!
-              private var scene   : SCNScene!
-
-              // MARK: – Player
-              private var playerNode    : SCNNode!
-              private var playerChar    : FBXCharacterNode!
-              private var cameraArm     : SCNNode!
-              private var cameraNode    : SCNNode!
-
-              // MARK: – State
-              private var health       : Float        = 100
-              private var maxHealth    : Float        = 100
-              private var ammo         : Int          = 30
-              private var totalAmmo    : Int          = 210
-              private var score        : Int          = 0
-              private var wave         : Int          = 0
-              private var isReloading  : Bool         = false
-              private var reloadProgress: Float       = 0
-              private var canShoot     : Bool         = true
-              private var isGameOver   : Bool         = false
-              private var waveActive   : Bool         = false
-              private var bossSpawned  : Bool         = false
-              private var waveTimer    : TimeInterval = 3.0
-              private var lastTime     : TimeInterval = 0
-              private var enemies      : [EnemyNode]  = []
-              private var bullets      : [SCNNode]    = []
-              private var lastShotTime : TimeInterval = 0
-              private var isMoving     : Bool         = false
-              private var isRunning    : Bool         = false
-
-              // MARK: – Input
-              private var moveJoystick  : JoystickView!
-              private var aimJoystick   : JoystickView!
-              private var hudView       : HUDOverlay!
-              private var isShooting    : Bool    = false
-              private var cameraYaw     : Float   = 0
-              private let cameraPitch   : Float   = -0.18
-              private weak var aimTouch : UITouch?
-              private var lastAimPt     : CGPoint = .zero
-
-              private let mapHalf: Float = 35.0
+          class GameViewController: UIViewController, SCNSceneRendererDelegate {
+              private var scnView: SCNView!
+              private var scene: SCNScene!
+              private var playerNode: SCNNode!
+              private var playerChar: FBXCharacterNode!
+              private var cameraNode: SCNNode!
+              
+              private var ammo = 30
+              private var totalAmmo = 210
+              private var isReloading = false
+              private var reloadProgress: Float = 0
+              private var isShooting = false
+              
+              private var moveJoystick: JoystickView!
+              private var aimJoystick: JoystickView!
+              private var hudView: HUDOverlay!
+              private var cameraYaw: Float = 0
+              private var lastAimPt: CGPoint = .zero
+              
+              private var reloadTimer: Timer?
+              private var reloadStart: Date = Date()
 
               override func viewDidLoad() {
                   super.viewDidLoad()
-                  AudioManager.shared.startAmbient()
                   setupScene()
-                  buildWorld()
                   spawnPlayer()
-                  setupCamera()
-                  setupLighting()
                   setupHUD()
                   setupJoysticks()
-                  waveTimer = 3.0
-                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                      self?.hudView.showMessage("⚔  WAVE 1 INCOMING  ⚔", color: UIColor(red:1, green:0.2, blue:0.2, alpha:1), duration:3.0)
-                      AudioManager.shared.play("ui_click")
-                  }
               }
-
-              override var prefersStatusBarHidden: Bool { true }
-              override var shouldAutorotate: Bool { true }
-              override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
-              override var prefersHomeIndicatorAutoHidden: Bool { true }
-
-              // MARK: – Scene Setup
+              
               private func setupScene() {
-                  scnView = SCNView(frame:view.bounds)
-                  scnView.autoresizingMask         = [.flexibleWidth, .flexibleHeight]
-                  scnView.backgroundColor          = .black
-                  scnView.antialiasingMode          = .multisampling4X
-                  scnView.preferredFramesPerSecond  = 60
+                  scnView = SCNView(frame: view.bounds)
+                  scnView.backgroundColor = .black
                   view.addSubview(scnView)
-
                   scene = SCNScene()
-                  scene.background.contents          = gradientSkyTexture()
-                  scene.physicsWorld.contactDelegate = self
-                  scene.physicsWorld.gravity         = SCNVector3(0, -14, 0)
-                  scnView.scene    = scene
+                  scnView.scene = scene
                   scnView.delegate = self
                   scnView.isPlaying = true
               }
 
-              private func gradientSkyTexture() -> UIColor {
-                  return UIColor(red:0.03, green:0.02, blue:0.06, alpha:1)
-              }
-
-              // MARK: – World
-              private func buildWorld() {
-                  buildGround(); buildBorders(); buildBuildings()
-                  buildTrees(); buildDebris(); addAtmosphere()
-              }
-
-              private func buildGround() {
-                  // Use PBR texture if available
-                  let geo = SCNFloor()
-                  let mat = SCNMaterial()
-                  if let tex = UIImage(named:"ground_diffuse") {
-                      mat.diffuse.contents = tex
-                      mat.diffuse.wrapS    = .repeat
-                      mat.diffuse.wrapT    = .repeat
-                      mat.diffuse.contentsTransform = SCNMatrix4MakeScale(12, 12, 1)
-                  } else {
-                      mat.diffuse.contents = UIColor(red:0.14, green:0.12, blue:0.08, alpha:1)
-                  }
-                  mat.roughness.contents = 0.92
-                  mat.lightingModel      = .physicallyBased
-                  geo.materials = [mat]
-                  let node = SCNNode(geometry:geo)
-                  node.physicsBody = SCNPhysicsBody(type:.static, shape:nil)
-                  node.physicsBody?.categoryBitMask  = PhysicsMask.ground
-                  node.physicsBody?.collisionBitMask = PhysicsMask.player | PhysicsMask.enemy | PhysicsMask.bullet
-                  scene.rootNode.addChildNode(node)
-              }
-
-              private func buildBorders() {
-                  let h: Float = 10, t: Float = 2, s = mapHalf * 2
-                  let walls: [(Float,Float,Float,Float,Float,Float)] = [
-                      (0,h/2,-(mapHalf+t/2),s+t*2,h,t),
-                      (0,h/2,(mapHalf+t/2),s+t*2,h,t),
-                      (-(mapHalf+t/2),h/2,0,t,h,s),
-                      ((mapHalf+t/2),h/2,0,t,h,s)
-                  ]
-                  for (x,y,z,w,hh,d) in walls {
-                      let geo = SCNBox(width:CGFloat(w), height:CGFloat(hh), length:CGFloat(d), chamferRadius:0)
-                      let mat = SCNMaterial()
-                      mat.diffuse.contents = UIImage(named:"concrete_diffuse") ?? UIColor(red:0.16, green:0.12, blue:0.08, alpha:1)
-                      mat.lightingModel = .physicallyBased; mat.roughness.contents = 0.88
-                      geo.materials = [mat]
-                      let node = SCNNode(geometry:geo); node.position = SCNVector3(x,y,z)
-                      node.physicsBody = SCNPhysicsBody(type:.static, shape:nil)
-                      node.physicsBody?.categoryBitMask  = PhysicsMask.wall
-                      node.physicsBody?.collisionBitMask = PhysicsMask.player | PhysicsMask.enemy | PhysicsMask.bullet
-                      scene.rootNode.addChildNode(node)
-                  }
-              }
-
-              private func buildBuildings() {
-                  let data: [(Float,Float,Float,Float)] = [
-                      (-14,-20,6,9),( 12,-18,5,7),(-10,16,7,10),
-                      ( 18,10,5,8),(-20,5,5,8),(6,22,6,8),
-                      (-5,-10,5,6),( 16,-5,5,7),(1,2,4,6),
-                      (-24,-12,5,9),(24,-18,5,7),(8,-26,6,8),
-                      (-16,24,5,7),( 0,-30,5,6),(28,8,4,7)
-                  ]
-                  for (x,z,w,h) in data { addBuilding(at:SCNVector3(x,0,z), w:w, h:h, d:w*0.85) }
-              }
-
-              private func addBuilding(at pos: SCNVector3, w: Float, h: Float, d: Float) {
-                  let geo = SCNBox(width:CGFloat(w), height:CGFloat(h), length:CGFloat(d), chamferRadius:0.1)
-                  let mat = SCNMaterial()
-                  mat.diffuse.contents   = UIImage(named:"concrete_diffuse") ?? UIColor(red:CGFloat.random(in:0.14...0.22), green:CGFloat.random(in:0.10...0.15), blue:CGFloat.random(in:0.06...0.10), alpha:1)
-                  mat.roughness.contents = 0.88; mat.lightingModel = .physicallyBased
-                  geo.materials = [mat]
-                  let node = SCNNode(geometry:geo)
-                  node.position = SCNVector3(pos.x, h/2, pos.z)
-                  node.physicsBody = SCNPhysicsBody(type:.static, shape:nil)
-                  node.physicsBody?.categoryBitMask  = PhysicsMask.wall
-                  node.physicsBody?.collisionBitMask = PhysicsMask.player | PhysicsMask.enemy | PhysicsMask.bullet
-                  scene.rootNode.addChildNode(node)
-
-                  // Roof
-                  let rh = w * 0.5
-                  let roof = SCNNode(geometry: { let g = SCNPyramid(width:CGFloat(w+0.5), height:CGFloat(rh), length:CGFloat(d+0.5)); let m = SCNMaterial(); m.diffuse.contents = UIColor(red:0.07, green:0.05, blue:0.03, alpha:1); m.lightingModel = .physicallyBased; g.materials=[m]; return g }())
-                  roof.position = SCNVector3(pos.x, h+rh/2, pos.z)
-                  scene.rootNode.addChildNode(roof)
-
-                  // Windows
-                  if Bool.random() { addWindowGlow(at:SCNVector3(pos.x, h*0.5, pos.z - d/2 - 0.12)) }
-                  if Bool.random() { addWindowGlow(at:SCNVector3(pos.x - w/2 - 0.12, h*0.6, pos.z)) }
-              }
-
-              private func addWindowGlow(at pos: SCNVector3) {
-                  let geo = SCNBox(width:0.7, height:0.9, length:0.05, chamferRadius:0.05)
-                  let mat = SCNMaterial()
-                  let r = CGFloat.random(in:0.7...1.0), g = CGFloat.random(in:0.6...0.9), b = CGFloat.random(in:0.2...0.5)
-                  mat.diffuse.contents  = UIColor(red:r, green:g, blue:b, alpha:1)
-                  mat.emission.contents = UIColor(red:r*0.55, green:g*0.45, blue:b*0.2, alpha:1)
-                  mat.lightingModel     = .constant; geo.materials = [mat]
-                  let node = SCNNode(geometry:geo); node.position = pos
-                  scene.rootNode.addChildNode(node)
-
-                  let light = SCNLight(); light.type = .omni
-                  light.color = UIColor(red:r, green:g*0.8, blue:b*0.4, alpha:1)
-                  light.intensity = 100
-                  light.attenuationStartDistance = 0.5; light.attenuationEndDistance = 6
-                  let ln = SCNNode(); ln.light = light; ln.position = pos
-                  scene.rootNode.addChildNode(ln)
-                  ln.runAction(SCNAction.repeatForever(SCNAction.sequence([
-                      SCNAction.run { n in n.light?.intensity = CGFloat.random(in:60...160) },
-                      SCNAction.wait(duration:Double.random(in:0.05...0.2))
-                  ])))
-              }
-
-              private func buildTrees() {
-                  let pts: [(Float,Float)] = [
-                      (-28,-28),(-14,-30),(22,-26),(30,6),(28,22),
-                      (-28,20),(-30,2),(2,-32),(13,28),(-13,27),
-                      (20,-24),(-22,-22),(26,-12),(-28,14),(32,-4),
-                      (-32,-8),(6,-34),(24,28),(-18,32),(18,32)
-                  ]
-                  for (x,z) in pts { addTree(at:SCNVector3(x,0,z), scale:CGFloat.random(in:0.8...1.4)) }
-              }
-
-              private func addTree(at pos: SCNVector3, scale: CGFloat = 1) {
-                  let trunk = SCNCylinder(radius:0.22*scale, height:2.8*scale)
-                  let tMat = SCNMaterial(); tMat.diffuse.contents = UIColor(red:0.22, green:0.13, blue:0.06, alpha:1); tMat.lightingModel = .physicallyBased; trunk.materials = [tMat]
-                  let tn = SCNNode(geometry:trunk); tn.position = SCNVector3(pos.x, Float(1.4*scale), pos.z)
-                  tn.physicsBody = SCNPhysicsBody(type:.static, shape:nil)
-                  tn.physicsBody?.categoryBitMask = PhysicsMask.wall; tn.physicsBody?.collisionBitMask = PhysicsMask.player | PhysicsMask.enemy
-                  scene.rootNode.addChildNode(tn)
-
-                  // Multi-layer canopy for depth
-                  for i in 0..<3 {
-                      let radius = 1.6*scale - CGFloat(i)*0.2*scale
-                      let leaves = SCNSphere(radius:radius)
-                      let lMat = SCNMaterial()
-                      lMat.diffuse.contents = UIColor(red:CGFloat.random(in:0.04...0.08), green:CGFloat.random(in:0.10...0.18), blue:CGFloat.random(in:0.03...0.06), alpha:1)
-                      lMat.lightingModel = .physicallyBased; lMat.roughness.contents = 0.95
-                      leaves.materials = [lMat]
-                      let ln = SCNNode(geometry:leaves)
-                      ln.position = SCNVector3(pos.x, Float(2.8*scale + Double(i)*0.8*Double(scale)), pos.z)
-                      scene.rootNode.addChildNode(ln)
-                  }
-              }
-
-              private func buildDebris() {
-                  // Scattered sandbags, barrels, crates for PUBG battlefield feel
-                  let debrisPositions: [(Float,Float,String)] = [
-                      (-6, -6, "crate"), (6, -6, "barrel"), (-6, 6, "sandbag"),
-                      (6, 6, "crate"), (0, -14, "barrel"), (14, 0, "crate"),
-                      (-14, 0, "sandbag"), (0, 14, "barrel")
-                  ]
-                  for (x, z, type) in debrisPositions { addDebris(at:SCNVector3(x, 0, z), type:type) }
-              }
-
-              private func addDebris(at pos: SCNVector3, type: String) {
-                  let geo: SCNGeometry
-                  let mat = SCNMaterial()
-                  mat.lightingModel = .physicallyBased; mat.roughness.contents = 0.88
-
-                  switch type {
-                  case "barrel":
-                      geo = SCNCylinder(radius:0.38, height:0.85)
-                      mat.diffuse.contents = UIColor(red:0.55, green:0.28, blue:0.08, alpha:1)
-                      mat.metalness.contents = 0.4
-                  case "sandbag":
-                      geo = SCNBox(width:1.4, height:0.55, length:0.65, chamferRadius:0.12)
-                      mat.diffuse.contents = UIColor(red:0.58, green:0.50, blue:0.34, alpha:1)
-                  default: // crate
-                      geo = SCNBox(width:0.85, height:0.85, length:0.85, chamferRadius:0.04)
-                      mat.diffuse.contents = UIColor(red:0.45, green:0.32, blue:0.18, alpha:1)
-                  }
-                  geo.materials = [mat]
-                  let node = SCNNode(geometry:geo); node.position = SCNVector3(pos.x, 0.45, pos.z)
-                  node.eulerAngles.y = Float.random(in:0...Float.pi*2)
-                  node.physicsBody = SCNPhysicsBody(type:.static, shape:nil)
-                  node.physicsBody?.categoryBitMask = PhysicsMask.wall
-                  node.physicsBody?.collisionBitMask = PhysicsMask.player | PhysicsMask.enemy | PhysicsMask.bullet
-                  scene.rootNode.addChildNode(node)
-              }
-
-              private func addAtmosphere() {
-                  scene.fogColor           = UIColor(red:0.06, green:0.05, blue:0.09, alpha:1)
-                  scene.fogStartDistance   = 22; scene.fogEndDistance = 80
-                  scene.fogDensityExponent = 0.55
-
-                  // Torch / fire lights
-                  let torches: [(Float,Float)] = [
-                      (-12,-12),(12,-12),(-12,12),(12,12),
-                      (0,-24),(0,24),(-24,0),(24,0),
-                      (-18,-18),(18,-18),(-18,18),(18,18)
-                  ]
-                  for (tx,tz) in torches {
-                      let light = SCNLight(); light.type = .omni
-                      light.color = UIColor(red:1, green:0.52, blue:0.12, alpha:1)
-                      light.intensity = 380
-                      light.attenuationStartDistance = 1; light.attenuationEndDistance = 14
-                      let node = SCNNode(); node.light = light; node.position = SCNVector3(tx, 2.8, tz)
-                      scene.rootNode.addChildNode(node)
-                      node.runAction(SCNAction.repeatForever(SCNAction.sequence([
-                          SCNAction.run { n in n.light?.intensity = CGFloat.random(in:200...500) },
-                          SCNAction.wait(duration:Double.random(in:0.04...0.15))
-                      ])))
-                  }
-              }
-
-              // MARK: – Player Spawn
               private func spawnPlayer() {
-                  playerNode = SCNNode(); playerNode.position = SCNVector3(0, 0, 0)
+                  playerNode = SCNNode()
                   playerChar = FBXCharacterNode()
                   playerNode.addChildNode(playerChar)
-
-                  let shape = SCNPhysicsShape(geometry:SCNCapsule(capRadius:0.40, height:1.75), options:nil)
-                  let body  = SCNPhysicsBody(type:.kinematic, shape:shape)
-                  body.categoryBitMask    = PhysicsMask.player
-                  body.contactTestBitMask = PhysicsMask.enemy | PhysicsMask.item
-                  body.collisionBitMask   = PhysicsMask.wall | PhysicsMask.ground
-                  playerNode.physicsBody  = body
                   scene.rootNode.addChildNode(playerNode)
-              }
-
-              private func setupCamera() {
-                  cameraArm          = SCNNode(); cameraArm.position = SCNVector3(0, 1.85, 0)
-                  playerNode.addChildNode(cameraArm)
-                  cameraNode         = SCNNode()
-                  let cam            = SCNCamera()
-                  cam.fieldOfView    = 72; cam.zFar = 220; cam.zNear = 0.04
-                  cam.motionBlurIntensity = 0.18
-                  cameraNode.camera  = cam
-                  cameraNode.position = SCNVector3(0, 2.6, 6.8)
-                  cameraNode.eulerAngles = SCNVector3(cameraPitch, 0, 0)
-                  cameraArm.addChildNode(cameraNode)
-                  scnView.pointOfView = cameraNode
-              }
-
-              private func setupLighting() {
-                  scnView.autoenablesDefaultLighting = false
-                  let moon = SCNLight(); moon.type = .directional
-                  moon.color = UIColor(red:0.52, green:0.52, blue:0.72, alpha:1)
-                  moon.intensity = 700; moon.castsShadow = true
-                  moon.shadowRadius = 4; moon.shadowColor = UIColor(white:0, alpha:0.75)
-                  moon.shadowMapSize = CGSize(width:2048, height:2048)
-                  let moonNode = SCNNode(); moonNode.light = moon; moonNode.eulerAngles = SCNVector3(-0.6, 0.45, 0)
-                  scene.rootNode.addChildNode(moonNode)
-
-                  let amb = SCNLight(); amb.type = .ambient
-                  amb.color = UIColor(red:0.05, green:0.04, blue:0.08, alpha:1); amb.intensity = 180
-                  let ambNode = SCNNode(); ambNode.light = amb
-                  scene.rootNode.addChildNode(ambNode)
+                  
+                  cameraNode = SCNNode()
+                  cameraNode.camera = SCNCamera()
+                  cameraNode.position = SCNVector3(0, 2.5, 5)
+                  playerNode.addChildNode(cameraNode)
               }
 
               private func setupHUD() {
-                  hudView = HUDOverlay(frame:view.bounds)
-                  hudView.autoresizingMask    = [.flexibleWidth, .flexibleHeight]
+                  hudView = HUDOverlay(frame: view.bounds)
+                  hudView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                   hudView.isUserInteractionEnabled = true
                   view.addSubview(hudView)
-                  hudView.shootBtn.addTarget(self, action:#selector(shootDown), for:.touchDown)
-                  hudView.shootBtn.addTarget(self, action:#selector(shootUp),   for:[.touchUpInside,.touchUpOutside,.touchCancel])
+                  
+                  // Link Shoot Button
+                  hudView.shootBtn.addTarget(self, action: #selector(shootDown), for: .touchDown)
+                  hudView.shootBtn.addTarget(self, action: #selector(shootUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+                  
+                  // Link Manual Reload Button
+                  hudView.reloadBtn.addTarget(self, action: #selector(triggerManualReload), for: .touchUpInside)
               }
-
-              @objc private func shootDown() { isShooting = true  }
-              @objc private func shootUp()   { isShooting = false }
-
-              private func setupJoysticks() {
-                  let jR = view.bounds.height * 0.15
-                  moveJoystick = JoystickView(radius:jR)
-                  moveJoystick.center = CGPoint(x:jR+28, y:view.bounds.height-jR-28)
-                  view.addSubview(moveJoystick)
-                  aimJoystick = JoystickView(radius:jR)
-                  aimJoystick.center = CGPoint(x:view.bounds.width-jR-28-106, y:view.bounds.height-jR-28)
-                  view.addSubview(aimJoystick)
-              }
-
-              // MARK: – Touch
-              override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-                  for t in touches {
-                      let pt = t.location(in:view)
-                      if moveJoystick.frame.contains(pt) && moveJoystick.trackingTouch == nil {
-                          moveJoystick.trackingTouch = t
-                      } else if aimJoystick.frame.contains(pt) && aimJoystick.trackingTouch == nil {
-                          aimJoystick.trackingTouch = t; aimTouch = t; lastAimPt = pt
-                      }
+              
+              @objc private func shootDown() { isShooting = true }
+              @objc private func shootUp() { isShooting = false }
+              
+              // NEW MANUAL RELOAD FUNCTION
+              @objc private func triggerManualReload() {
+                  if ammo < 30 && !isReloading && totalAmmo > 0 {
+                      reload()
                   }
               }
-              override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-                  for t in touches {
-                      let pt = t.location(in:view)
-                      if t === moveJoystick.trackingTouch { moveJoystick.moveTouch(t, in:view) }
-                      else if t === aimJoystick.trackingTouch {
-                          aimJoystick.moveTouch(t, in:view)
-                          cameraYaw -= Float(pt.x - lastAimPt.x) * 0.0052; lastAimPt = pt
-                      }
-                  }
-              }
-              override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-                  for t in touches {
-                      if t === moveJoystick.trackingTouch { moveJoystick.reset() }
-                      if t === aimJoystick.trackingTouch  { aimJoystick.reset(); aimTouch = nil }
-                  }
-              }
-              override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { touchesEnded(touches, with:event) }
-
-              // MARK: – Game Loop
-              func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-                  guard !isGameOver else { return }
-                  let dt = lastTime == 0 ? 0 : Float(min(time - lastTime, 0.05))
-                  lastTime = time
-
-                  movePlayer(dt:dt)
-                  updateCamera()
-                  if isShooting { tryShoot(time:time) }
-                  updateEnemies(time:time, dt:dt)
-                  updateWaves(dt:dt)
-                  cleanBullets()
-
-                  DispatchQueue.main.async { [weak self] in
-                      guard let s = self else { return }
-                      s.hudView.update(health:s.health, maxHealth:s.maxHealth, ammo:s.ammo, totalAmmo:s.totalAmmo,
-                                       score:s.score, wave:s.wave, isReloading:s.isReloading, reloadProgress:s.reloadProgress)
-                      if s.health <= 0 && !s.isGameOver { s.endGame(victory:false) }
-                  }
-              }
-
-              private func movePlayer(dt: Float) {
-                  let mv  = moveJoystick.velocity
-                  let len = sqrt(mv.x*mv.x + mv.y*mv.y)
-                  isMoving  = len > 0.1
-                  isRunning = len > 0.72
-
-                  playerChar.animate(isMoving:isMoving, isRunning:isRunning, isShooting:isShooting, dt:dt)
-
-                  guard isMoving else { return }
-
-                  let speed: Float = isRunning ? 7.8 : 3.8
-                  let fwd = SIMD3<Float>(-sin(cameraYaw), 0, -cos(cameraYaw))
-                  let rgt = SIMD3<Float>( cos(cameraYaw), 0, -sin(cameraYaw))
-                  var dir = fwd * (-mv.y) + rgt * mv.x
-                  let dLen = sqrt(dir.x*dir.x + dir.z*dir.z)
-                  if dLen > 0 { dir = dir / dLen }
-
-                  var np = playerNode.simdPosition + dir * speed * dt
-                  let b  = mapHalf - 1.5
-                  np.x = max(-b, min(b, np.x)); np.z = max(-b, min(b, np.z))
-                  playerNode.simdPosition = np
-                  playerChar.eulerAngles.y = atan2(dir.x, dir.z)
-
-                  // Footstep sound
-                  if Int(lastTime * (isRunning ? 4.0 : 2.5)) % 1 == 0 && dt > 0 {
-                      if arc4random_uniform(18) == 0 { AudioManager.shared.play("footstep", volume:0.35) }
-                  }
-              }
-
-              private func updateCamera() {
-                  cameraArm.eulerAngles.y = cameraYaw
-              }
-
-              // MARK: – Shooting
-              private func tryShoot(time: TimeInterval) {
-                  guard canShoot, !isReloading, time - lastShotTime > 0.18 else {
-                      if ammo == 0 && !isReloading { reload() }; return
-                  }
-                  guard ammo > 0 else { reload(); return }
-                  lastShotTime = time; ammo -= 1
-
-                  AudioManager.shared.play("gunshot", volume:0.9)
-
-                  let wt   = cameraNode.presentation.worldTransform
-                  let cPos = SCNVector3(wt.m41, wt.m42, wt.m43)
-                  let fLen = sqrt(wt.m31*wt.m31 + wt.m32*wt.m32 + wt.m33*wt.m33)
-                  let fx   = -wt.m31/fLen, fy = -wt.m32/fLen, fz = -wt.m33/fLen
-
-                  // Muzzle flash particle
-                  let muzzlePos = SCNVector3(cPos.x + fx*1.8, cPos.y + fy*1.8, cPos.z + fz*1.8)
-                  ParticleManager.shared.spawnMuzzleFlash(at:muzzlePos, in:scene)
-
-                  // Bullet tracer
-                  let bGeo = SCNCapsule(capRadius:0.022, height:0.45)
-                  let bMat = SCNMaterial()
-                  bMat.diffuse.contents  = UIColor(red:1, green:0.92, blue:0.3, alpha:1)
-                  bMat.emission.contents = UIColor(red:1, green:0.7, blue:0.15, alpha:1)
-                  bMat.lightingModel     = .constant; bGeo.materials = [bMat]
-                  let bullet = SCNNode(geometry:bGeo); bullet.name = "bullet"
-                  bullet.position = SCNVector3(cPos.x+fx*1.5, cPos.y+fy*1.5, cPos.z+fz*1.5)
-                  bullet.eulerAngles = SCNVector3(atan2(fy, sqrt(fx*fx+fz*fz)), atan2(fx, fz), 0)
-
-                  let bBody = SCNPhysicsBody(type:.dynamic, shape:SCNPhysicsShape(geometry:SCNCapsule(capRadius:0.022, height:0.45), options:nil))
-                  bBody.categoryBitMask     = PhysicsMask.bullet
-                  bBody.contactTestBitMask  = PhysicsMask.enemy | PhysicsMask.wall
-                  bBody.collisionBitMask    = PhysicsMask.none
-                  bBody.isAffectedByGravity = false; bBody.damping = 0
-                  bBody.velocity = SCNVector3(fx*62, fy*62, fz*62)
-                  bullet.physicsBody = bBody
-                  scene.rootNode.addChildNode(bullet); bullets.append(bullet)
-                  bullet.runAction(SCNAction.sequence([
-                      SCNAction.wait(duration:2.2),
-                      SCNAction.run { [weak self] n in self?.bullets.removeAll { $0 === n } },
-                      SCNAction.removeFromParentNode()
-                  ]))
-                  if ammo == 0 { reload() }
-              }
-
-              private var reloadTimer: Timer?
-              private var reloadStart: Date = Date()
 
               private func reload() {
-                  guard !isReloading, totalAmmo > 0 else {
-                      if totalAmmo == 0 { AudioManager.shared.play("empty_click") }; return
-                  }
-                  isReloading = true; canShoot = false; reloadProgress = 0
+                  guard !isReloading, totalAmmo > 0 else { return }
+                  isReloading = true
+                  reloadProgress = 0
                   reloadStart = Date()
-                  AudioManager.shared.play("reload")
-                  let duration = 1.6
-                  reloadTimer = Timer.scheduledTimer(withTimeInterval:0.05, repeats:true) { [weak self] t in
+                  let duration = 1.5
+                  
+                  reloadTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] t in
                       guard let s = self else { t.invalidate(); return }
                       s.reloadProgress = Float(Date().timeIntervalSince(s.reloadStart) / duration)
+                      
                       if s.reloadProgress >= 1.0 {
                           t.invalidate()
                           let load = min(30 - s.ammo, s.totalAmmo)
-                          s.ammo += load; s.totalAmmo -= load
-                          s.isReloading = false; s.canShoot = true; s.reloadProgress = 0
+                          s.ammo += load
+                          s.totalAmmo -= load
+                          s.isReloading = false
+                          s.reloadProgress = 0
                       }
                   }
               }
 
-              private func cleanBullets() { bullets = bullets.filter { $0.parent != nil } }
+              private func setupJoysticks() {
+                  let jR = view.bounds.height * 0.15
+                  moveJoystick = JoystickView(radius: jR)
+                  moveJoystick.center = CGPoint(x: jR + 30, y: view.bounds.height - jR - 30)
+                  view.addSubview(moveJoystick)
+                  
+                  aimJoystick = JoystickView(radius: jR)
+                  aimJoystick.center = CGPoint(x: view.bounds.width - jR - 30, y: view.bounds.height - jR - 30)
+                  view.addSubview(aimJoystick)
+              }
 
-              // MARK: – Enemy AI
-              private func updateEnemies(time: TimeInterval, dt: Float) {
-                  enemies = enemies.filter { $0.parent != nil && $0.isAlive }
-                  for e in enemies {
-                      e.moveToward(target:playerNode.position, dt:dt)
-                      let dist = e.distanceTo(playerNode.position)
-                      if dist < e.kind.attackRange + 0.6 && e.canAttack(at:time) {
-                          e.lastAttackTime = time
-                          health -= e.kind.damage
-                          DispatchQueue.main.async { [weak self] in
-                              AudioManager.shared.play("hurt", volume:0.8)
-                              self?.flashScreen(color:UIColor(red:0.9, green:0, blue:0, alpha:0.30))
-                          }
+              override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+                  for t in touches {
+                      let pt = t.location(in: view)
+                      if moveJoystick.frame.contains(pt) && moveJoystick.trackingTouch == nil {
+                          moveJoystick.trackingTouch = t
+                      } else if aimJoystick.frame.contains(pt) && aimJoystick.trackingTouch == nil {
+                          aimJoystick.trackingTouch = t; lastAimPt = pt
                       }
                   }
               }
-
-              // MARK: – Wave System
-              private func updateWaves(dt: Float) {
-                  if waveActive {
-                      if enemies.filter({ $0.isAlive }).isEmpty {
-                          waveActive = false; waveTimer = 4.5; score += 500
-                          if bossSpawned { endGame(victory:true); return }
-                          DispatchQueue.main.async { [weak self] in
-                              guard let s = self else { return }
-                              s.hudView.showMessage("✅  WAVE CLEARED  +500", color:UIColor(red:0.2, green:1, blue:0.3, alpha:1), duration:2.5)
-                              AudioManager.shared.play("wave_clear")
-                              if s.wave % 2 == 0 { s.dropAmmoBox() }
-                          }
+              
+              override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+                  for t in touches {
+                      let pt = t.location(in: view)
+                      if t === moveJoystick.trackingTouch { moveJoystick.moveTouch(t, in: view) }
+                      else if t === aimJoystick.trackingTouch {
+                          aimJoystick.moveTouch(t, in: view)
+                          cameraYaw -= Float(pt.x - lastAimPt.x) * 0.005
+                          lastAimPt = pt
                       }
-                  } else {
-                      waveTimer -= Double(dt)
-                      if waveTimer <= 0 { spawnWave() }
                   }
               }
-
-              private func spawnWave() {
-                  wave += 1; waveActive = true
+              
+              override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+                  for t in touches {
+                      if t === moveJoystick.trackingTouch { moveJoystick.reset() }
+                      if t === aimJoystick.trackingTouch { aimJoystick.reset() }
+                  }
+              }
+              
+              func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
                   DispatchQueue.main.async { [weak self] in
                       guard let s = self else { return }
-                      s.hudView.showMessage("⚠  WAVE \(s.wave)  ⚠", color:UIColor(red:1, green:0.2, blue:0.2, alpha:1), duration:2.5)
-                      AudioManager.shared.play("ui_click")
+                      s.hudView.update(ammo: s.ammo, totalAmmo: s.totalAmmo, isReloading: s.isReloading, reloadProgress: s.reloadProgress)
                   }
-                  if wave == 6 { spawnBoss(); return }
-
-                  var pool: [EnemyKind] = []
-                  for _ in 0..<(4 + wave*2)   { pool.append(.walker) }
-                  for _ in 0..<(wave/2)        { pool.append(.brute) }
-                  for _ in 0..<(wave/2)        { pool.append(.runner) }
-                  if wave > 2                  { pool.append(contentsOf:Array(repeating:.cultist, count:wave/3)) }
-                  if wave > 4                  { pool.append(.sniper) }
-
-                  for (i, k) in pool.enumerated() {
-                      DispatchQueue.main.asyncAfter(deadline:.now() + Double(i)*0.35) { [weak self] in
-                          self?.spawnEnemy(kind:k)
-                      }
-                  }
-              }
-
-              private func spawnBoss() {
-                  bossSpawned = true
-                  DispatchQueue.main.async { [weak self] in
-                      self?.hudView.showMessage("💀  EL GIGANTE AWAKENS  💀", color:UIColor(red:1, green:0, blue:0, alpha:1), duration:4.0)
-                      AudioManager.shared.play("boss_roar")
-                  }
-                  spawnEnemy(kind:.boss, at:SCNVector3(-(mapHalf*0.55), 0, -(mapHalf*0.55)))
-                  for i in 0..<6 {
-                      DispatchQueue.main.asyncAfter(deadline:.now() + Double(i)*0.45) { [weak self] in
-                          self?.spawnEnemy(kind:.runner)
-                      }
-                  }
-              }
-
-              private func spawnEnemy(kind: EnemyKind, at pos: SCNVector3? = nil) {
-                  let e = EnemyNode(kind:kind)
-                  e.position = pos ?? randomEdge(); e.position.y = 0
-                  scene.rootNode.addChildNode(e); enemies.append(e)
-              }
-
-              private func randomEdge() -> SCNVector3 {
-                  let b = mapHalf - 3
-                  switch Int.random(in:0...3) {
-                  case 0:  return SCNVector3(Float.random(in:-b...b), 0, -b)
-                  case 1:  return SCNVector3(Float.random(in:-b...b), 0,  b)
-                  case 2:  return SCNVector3(-b, 0, Float.random(in:-b...b))
-                  default: return SCNVector3( b, 0, Float.random(in:-b...b))
-                  }
-              }
-
-              private func dropAmmoBox() {
-                  let geo = SCNBox(width:0.7, height:0.65, length:0.7, chamferRadius:0.07)
-                  let mat = SCNMaterial()
-                  mat.diffuse.contents  = UIColor(red:0.65, green:0.48, blue:0.12, alpha:1)
-                  mat.emission.contents = UIColor(red:0.2, green:0.15, blue:0.02, alpha:1)
-                  mat.roughness.contents = 0.7; mat.metalness.contents = 0.4; mat.lightingModel = .physicallyBased
-                  geo.materials = [mat]
-                  let node = SCNNode(geometry:geo); node.name = "ammo"
-                  node.position = SCNVector3(Float.random(in:-8...8), 0.35, Float.random(in:-8...8))
-                  node.runAction(SCNAction.repeatForever(SCNAction.sequence([
-                      SCNAction.moveBy(x:0, y:0.32, z:0, duration:0.75),
-                      SCNAction.moveBy(x:0, y:-0.32, z:0, duration:0.75)
-                  ])))
-                  node.runAction(SCNAction.repeatForever(SCNAction.rotateBy(x:0, y:.pi*2, z:0, duration:3)))
-                  let body = SCNPhysicsBody(type:.static, shape:nil)
-                  body.categoryBitMask = PhysicsMask.item; body.contactTestBitMask = PhysicsMask.player
-                  body.collisionBitMask = PhysicsMask.none; node.physicsBody = body
-                  scene.rootNode.addChildNode(node)
-                  node.runAction(SCNAction.sequence([
-                      SCNAction.wait(duration:18),
-                      SCNAction.fadeOut(duration:1.5),
-                      SCNAction.removeFromParentNode()
-                  ]))
-              }
-
-              // MARK: – Physics Contact
-              func physicsWorld(_ world: SCNPhysicsWorld, didBegin contact: SCNPhysicsContact) {
-                  let nA = contact.nodeA, nB = contact.nodeB
-                  let mA = nA.physicsBody?.categoryBitMask ?? 0
-                  let mB = nB.physicsBody?.categoryBitMask ?? 0
-
-                  if (mA == PhysicsMask.bullet && mB == PhysicsMask.enemy) ||
-                     (mB == PhysicsMask.bullet && mA == PhysicsMask.enemy) {
-                      let bNode = mA == PhysicsMask.bullet ? nA : nB
-                      let eNode = (mA == PhysicsMask.enemy ? nA : nB) as? EnemyNode
-                      bNode.removeFromParentNode(); bullets.removeAll { $0 === bNode }
-                      let cp = contact.contactPoint
-                      ParticleManager.shared.spawnBloodSplat(at:cp, in:scene)
-                      AudioManager.shared.play("bullet_impact", volume:0.55)
-                      let wasDead = !(eNode?.isAlive ?? true)
-                      eNode?.takeDamage(28)
-                      if let e = eNode, !wasDead, !e.isAlive {
-                          let pts = e.kind.scoreValue; score += pts
-                          DispatchQueue.main.async { [weak self] in
-                              AudioManager.shared.play("enemy_death", volume:0.65)
-                              self?.hudView.addKillFeed("💀 +\(pts)  \(String(describing:e.kind).uppercased())")
-                          }
-                      }; return
-                  }
-                  if mA == PhysicsMask.bullet || mB == PhysicsMask.bullet {
-                      let bNode = mA == PhysicsMask.bullet ? nA : nB
-                      let cp = contact.contactPoint
-                      ParticleManager.shared.spawnBulletImpact(at:cp, in:scene)
-                      bNode.removeFromParentNode(); bullets.removeAll { $0 === bNode }; return
-                  }
-                  if (mA == PhysicsMask.player && mB == PhysicsMask.item) ||
-                     (mB == PhysicsMask.player && mA == PhysicsMask.item) {
-                      let item = mA == PhysicsMask.item ? nA : nB
-                      item.removeFromParentNode(); totalAmmo += 30
-                      DispatchQueue.main.async { [weak self] in
-                          AudioManager.shared.play("ammo_pickup")
-                          self?.hudView.showMessage("🎯  AMMO +30", color:UIColor(red:1, green:0.88, blue:0.2, alpha:1), duration:1.5)
-                      }
-                  }
-              }
-
-              // MARK: – Game Over
-              private func endGame(victory: Bool) {
-                  guard !isGameOver else { return }
-                  isGameOver = true
-                  AudioManager.shared.stopAmbient()
-                  DispatchQueue.main.asyncAfter(deadline:.now() + 1.8) { [weak self] in
-                      self?.showGameOverScreen(victory:victory)
-                  }
-              }
-
-              private func showGameOverScreen(victory: Bool) {
-                  let ov = UIView(frame:view.bounds); ov.backgroundColor = UIColor(white:0, alpha:0.88)
-                  view.addSubview(ov)
-
-                  func mf(_ sz: CGFloat, bold: Bool = true) -> UIFont {
-                      UIFont(name:bold ? "Courier-Bold" : "Courier", size:sz) ?? (bold ? .boldSystemFont(ofSize:sz) : .systemFont(ofSize:sz))
-                  }
-
-                  // Background gradient simulation
-                  let gl = CAGradientLayer()
-                  gl.frame  = ov.bounds
-                  gl.colors = victory
-                      ? [UIColor(red:0.02, green:0.10, blue:0.02, alpha:0.6).cgColor, UIColor.clear.cgColor]
-                      : [UIColor(red:0.15, green:0.00, blue:0.00, alpha:0.6).cgColor, UIColor.clear.cgColor]
-                  ov.layer.insertSublayer(gl, at:0)
-
-                  let tc    = victory ? UIColor(red:1, green:0.85, blue:0.1, alpha:1) : UIColor(red:0.95, green:0.05, blue:0.05, alpha:1)
-                  let title = UILabel(frame:CGRect(x:0, y:ov.bounds.height*0.18, width:ov.bounds.width, height:60))
-                  title.text = victory ? "🏆  MISSION COMPLETE" : "💀  YOU ARE DEAD"
-                  title.textColor = tc; title.font = mf(38); title.textAlignment = .center
-                  title.transform = CGAffineTransform(scaleX:0.3, y:0.3); ov.addSubview(title)
-                  UIView.animate(withDuration:0.4) { title.transform = .identity }
-
-                  let rank: String
-                  switch score {
-                  case ..<2000:  rank = "D  –  Trainee"
-                  case ..<5000:  rank = "C  –  Soldier"
-                  case ..<12000: rank = "B  –  Veteran"
-                  case ..<25000: rank = "A  –  Elite"
-                  default:       rank = "S  –  LEGEND"
-                  }
-                  let rows = ["WAVES   :  \(wave)", "KILLS   :  \(score/100)", "SCORE   :  \(score)", "RANK    :  \(rank)"]
-                  for (i, s) in rows.enumerated() {
-                      let l = UILabel(frame:CGRect(x:0, y:ov.bounds.height*0.38 + CGFloat(i)*44, width:ov.bounds.width, height:32))
-                      l.text = s; l.textColor = UIColor(white:0.88, alpha:1); l.font = mf(22, bold:false); l.textAlignment = .center; l.alpha = 0; ov.addSubview(l)
-                      UIView.animate(withDuration:0.4, delay:0.5 + Double(i)*0.22) { l.alpha = 1 }
-                  }
-
-                  let btn = UIButton(type:.custom)
-                  btn.frame = CGRect(x:ov.bounds.width/2-130, y:ov.bounds.height*0.68, width:260, height:56)
-                  btn.setTitle("▶   PLAY AGAIN", for:.normal)
-                  btn.titleLabel?.font = mf(24); btn.backgroundColor = UIColor(red:0.55, green:0, blue:0, alpha:0.92)
-                  btn.layer.cornerRadius = 14; btn.layer.borderColor = UIColor(red:0.9, green:0.1, blue:0.1, alpha:1).cgColor
-                  btn.layer.borderWidth = 2.5; btn.alpha = 0
-                  btn.addTarget(self, action:#selector(restartGame), for:.touchUpInside); ov.addSubview(btn)
-                  UIView.animate(withDuration:0.5, delay:1.8) { btn.alpha = 1 }
-              }
-
-              @objc private func restartGame() {
-                  AudioManager.shared.play("ui_click")
-                  let vc = GameViewController(); vc.modalPresentationStyle = .fullScreen
-                  present(vc, animated:false)
-              }
-
-              private func flashScreen(color: UIColor) {
-                  let f = UIView(frame:view.bounds); f.backgroundColor = color
-                  f.isUserInteractionEnabled = false; view.insertSubview(f, belowSubview:hudView)
-                  UIView.animate(withDuration:0.22) { f.alpha = 0 } completion: { _ in f.removeFromSuperview() }
+                  
+                  // Apply player rotation based on aiming
+                  playerChar.eulerAngles.y = cameraYaw
               }
           }
           SWIFT_EOF
 
-      # ── project.yml ──────────────────────────────────────────────────────────
-      - name: project.yml
+      # ── Project Configuration ───────────────────────────────────────────────
+      - name: Generate Xcode Project
         run: |
           cat > SV3D/project.yml << 'YAML_EOF'
           name: ShadowVillage3D
-          options:
-            bundleIdPrefix: com.shadowvillage3d
-            createIntermediateGroups: true
-            deploymentTarget:
-              iOS: "16.0"
+          options: { bundleIdPrefix: com.shadowvillage3d, createIntermediateGroups: true }
           settings:
-            base:
-              SWIFT_VERSION: "5.9"
-              DEVELOPMENT_TEAM: ""
-              PRODUCT_BUNDLE_IDENTIFIER: com.shadowvillage3d.game
-              TARGETED_DEVICE_FAMILY: "1"
-              IPHONEOS_DEPLOYMENT_TARGET: "16.0"
-              CODE_SIGN_IDENTITY: ""
-              CODE_SIGNING_REQUIRED: "NO"
-              CODE_SIGNING_ALLOWED: "NO"
-              ENABLE_BITCODE: "NO"
-              DEBUG_INFORMATION_FORMAT: dwarf
-              SUPPORTS_MACCATALYST: "NO"
+            base: { SWIFT_VERSION: "5.9", IPHONEOS_DEPLOYMENT_TARGET: "16.0", CODE_SIGN_IDENTITY: "", CODE_SIGNING_REQUIRED: "NO", CODE_SIGNING_ALLOWED: "NO" }
           targets:
             ShadowVillage3D:
               type: application
               platform: iOS
               deploymentTarget: "16.0"
-              sources:
-                - path: Sources
-              resources:
-                - path: Resources
+              sources: [Sources]
+              resources: [Resources]
               settings:
-                base:
-                  INFOPLIST_FILE: Resources/Info.plist
-                  PRODUCT_NAME: ShadowVillage3D
-                  ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-                  CURRENT_PROJECT_VERSION: "1"
-                  MARKETING_VERSION: "2.0"
-              frameworks:
-                - SDK: SceneKit.framework
-                - SDK: UIKit.framework
-                - SDK: AVFoundation.framework
-                - SDK: GameplayKit.framework
-                - SDK: ModelIO.framework
-                - SDK: RealityKit.framework
+                base: { INFOPLIST_FILE: Resources/Info.plist, PRODUCT_NAME: ShadowVillage3D }
+              frameworks: [{SDK: SceneKit.framework}, {SDK: UIKit.framework}, {SDK: AVFoundation.framework}]
           YAML_EOF
-
-      # ── Info.plist ────────────────────────────────────────────────────────────
-      - name: Info.plist
-        run: |
+          
           cat > SV3D/Resources/Info.plist << 'PLIST_EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleDevelopmentRegion</key><string>en</string>
-              <key>CFBundleDisplayName</key><string>Shadow Village 3D</string>
-              <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-              <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-              <key>CFBundleName</key><string>ShadowVillage3D</string>
-              <key>CFBundlePackageType</key><string>APPL</string>
-              <key>CFBundleShortVersionString</key><string>2.0</string>
-              <key>CFBundleVersion</key><string>2</string>
-              <key>LSRequiresIPhoneOS</key><true/>
-              <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
-              <key>UISupportedInterfaceOrientations</key>
-              <array>
-                  <string>UIInterfaceOrientationLandscapeLeft</string>
-                  <string>UIInterfaceOrientationLandscapeRight</string>
-              </array>
-              <key>UIRequiresFullScreen</key><true/>
-              <key>UIStatusBarHidden</key><true/>
-              <key>UIViewControllerBasedStatusBarAppearance</key><false/>
-              <key>NSMicrophoneUsageDescription</key><string>Game audio</string>
-          </dict>
-          </plist>
+          <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.shadowvillage3d.game</string><key>UIRequiresFullScreen</key><true/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array></dict></plist>
           PLIST_EOF
 
-      # ── LaunchScreen ──────────────────────────────────────────────────────────
-      - name: LaunchScreen.storyboard
-        run: |
-          cat > SV3D/Resources/LaunchScreen.storyboard << 'XML_EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0"
-                    toolsVersion="21701" targetRuntime="AppleCocoa Touch"
-                    propertyAccessControl="none" useAutolayout="YES"
-                    launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES">
-              <dependencies>
-                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="21678"/>
-              </dependencies>
-              <scenes>
-                  <scene sceneID="sc1">
-                      <objects>
-                          <viewController id="vc1" sceneMemberID="viewController">
-                              <view key="view" contentMode="scaleToFill" id="vw1">
-                                  <rect key="frame" x="0.0" y="0.0" width="430" height="932"/>
-                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                  <color key="backgroundColor" red="0.02" green="0.01" blue="0.01" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                  <label opaque="NO" userInteractionEnabled="NO" contentMode="left"
-                                         text="SHADOW VILLAGE 3D" textAlignment="center"
-                                         lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines"
-                                         adjustsFontSizeToFit="NO"
-                                         translatesAutoresizingMaskIntoConstraints="NO" id="lb1">
-                                      <rect key="frame" x="0.0" y="380" width="430" height="60"/>
-                                      <fontDescription key="fontDescription" type="boldSystem" pointSize="42"/>
-                                      <color key="textColor" red="0.9" green="0.06" blue="0.06" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                      <nil key="highlightedColor"/>
-                                  </label>
-                                  <label opaque="NO" userInteractionEnabled="NO" contentMode="left"
-                                         text="PUBG EDITION" textAlignment="center"
-                                         lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines"
-                                         adjustsFontSizeToFit="NO"
-                                         translatesAutoresizingMaskIntoConstraints="NO" id="lb2">
-                                      <rect key="frame" x="0.0" y="440" width="430" height="32"/>
-                                      <fontDescription key="fontDescription" type="system" pointSize="20"/>
-                                      <color key="textColor" red="0.8" green="0.65" blue="0.2" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                      <nil key="highlightedColor"/>
-                                  </label>
-                              </view>
-                          </viewController>
-                          <placeholder placeholderIdentifier="IBFirstResponder" id="fb1" sceneMemberID="firstResponder"/>
-                      </objects>
-                  </scene>
-              </scenes>
-          </document>
-          XML_EOF
+          cd SV3D && xcodegen generate --spec project.yml --project .
 
-      # ── AppIcon ───────────────────────────────────────────────────────────────
-      - name: Generate AppIcon
+      # ── Build & Package ──────────────────────────────────────────────────────
+      - name: Build IPA
         run: |
-          cat > SV3D/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json << 'JSON_EOF'
-          {
-            "images":[{"idiom":"universal","platform":"ios","size":"1024x1024","filename":"icon.png","scale":"1x"}],
-            "info":{"author":"xcode","version":1}
-          }
-          JSON_EOF
-          cat > SV3D/Resources/Assets.xcassets/Contents.json << 'JSON_EOF'
-          {"info":{"author":"xcode","version":1}}
-          JSON_EOF
-          python3 - << 'PYEOF'
-          import struct, zlib, math, random
-          def png(w, h):
-              random.seed(99)
-              def u32(n): return struct.pack('>I', n)
-              def chunk(t, d): return u32(len(d))+t+d+u32(zlib.crc32(t+d)&0xffffffff)
-              rows = []
-              for y in range(h):
-                  row = [0]
-                  for x in range(w):
-                      cx, cy = x - w//2, y - h//2
-                      dist = math.sqrt(cx*cx + cy*cy)
-                      # Dark military background
-                      r = max(0, int(12 - dist*0.008))
-                      g = max(0, int(8  - dist*0.005))
-                      b = max(0, int(6  - dist*0.004))
-                      # Soldier silhouette
-                      sx, sy = cx / (w*0.5), cy / (h*0.5)
-                      # Head
-                      if math.sqrt(sx**2 + (sy+0.45)**2) < 0.10:
-                          r,g,b = 210, 175, 145
-                      # Helmet
-                      elif math.sqrt(sx**2 + (sy+0.52)**2) < 0.115 and sy < -0.40:
-                          r,g,b = 45, 58, 32
-                      # Body/torso
-                      elif abs(sx) < 0.14 and -0.40 < sy < 0.02:
-                          r,g,b = 58, 72, 42
-                      # Arms
-                      elif 0.13 < abs(sx) < 0.22 and -0.35 < sy < -0.05:
-                          r,g,b = 50, 62, 36
-                      # Legs
-                      elif abs(sx) < 0.10 and 0.02 < sy < 0.48:
-                          r,g,b = 38, 48, 28
-                      # Weapon barrel
-                      elif -0.38 < sx < -0.14 and -0.22 < sy < -0.18:
-                          r,g,b = 22, 22, 24
-                      # Blood moon / red circle bg
-                      elif 0.60 < dist/(w*0.5) < 0.72:
-                          intensity = 1 - abs(dist/(w*0.5) - 0.66)/0.06
-                          r = int(r + 180*intensity)
-                          g = int(g + 15*intensity)
-                          b = int(b + 8*intensity)
-                      # Noise grain
-                      r = min(255, r + random.randint(-4, 4))
-                      g = min(255, max(0, g + random.randint(-3, 3)))
-                      b = min(255, max(0, b + random.randint(-2, 2)))
-                      row += [r, g, b]
-                  rows.append(bytes(row))
-              raw = zlib.compress(b''.join(rows), 6)
-              sig  = b'\x89PNG\r\n\x1a\n'
-              ihdr = u32(w)+u32(h)+bytes([8,2,0,0,0])
-              return sig+chunk(b'IHDR',ihdr)+chunk(b'IDAT',raw)+chunk(b'IEND',b'')
-          with open('SV3D/Resources/Assets.xcassets/AppIcon.appiconset/icon.png','wb') as f:
-              f.write(png(1024, 1024))
-          print("✅ Icon generated (PUBG-style soldier silhouette)")
-          PYEOF
-
-      # ── XcodeGen ─────────────────────────────────────────────────────────────
-      - name: Generate Xcode Project
-        working-directory: SV3D
-        run: xcodegen generate --spec project.yml --project .
-
-      # ── Build ─────────────────────────────────────────────────────────────────
-      - name: Build (unsigned)
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project SV3D/ShadowVillage3D.xcodeproj \
-            -scheme ShadowVillage3D \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM="" \
-            ENABLE_BITCODE=NO SWIFT_VERSION=5.9 \
-            OBJROOT="${{ github.workspace }}/build/obj" \
-            SYMROOT="${{ github.workspace }}/build/sym" \
-            clean build 2>&1 | tee build.log | xcpretty || \
-            (echo "=== BUILD ERRORS ===" && grep "error:" build.log | head -40 && exit 1)
-
-      # ── Package IPA ───────────────────────────────────────────────────────────
-      - name: Package IPA
-        run: |
+          xcodebuild -project SV3D/ShadowVillage3D.xcodeproj -scheme ShadowVillage3D -configuration Release -sdk iphoneos -destination "generic/platform=iOS" CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO clean build SYMROOT="${{ github.workspace }}/build/sym"
           APP=$(find "${{ github.workspace }}/build/sym" -name "ShadowVillage3D.app" -type d | head -1)
-          [ -z "$APP" ] && echo "❌ .app not found" && grep "error:" build.log | head -25 && exit 1
-          echo "✅ Found: $APP ($(du -sh "$APP" | cut -f1))"
           mkdir -p Payload; cp -r "$APP" Payload/ShadowVillage3D.app
-          rm -rf Payload/ShadowVillage3D.app/_CodeSignature 2>/dev/null || true
           zip -r ShadowVillage3D-PUBG.ipa Payload
-          echo "📦 IPA: $(du -sh ShadowVillage3D-PUBG.ipa | cut -f1)"
 
-      # ── Upload ────────────────────────────────────────────────────────────────
-      - name: Upload IPA
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ShadowVillage3D-PUBG-Edition
           path: ShadowVillage3D-PUBG.ipa
-          retention-days: 30
-
-      # ── Summary ───────────────────────────────────────────────────────────────
-      - name: Build Summary
-        run: |
-          echo "╔══════════════════════════════════════════════════════════════╗"
-          echo "║   🎮  SHADOW VILLAGE 3D  –  PUBG EDITION  BUILD COMPLETE    ║"
-          echo "╠══════════════════════════════════════════════════════════════╣"
-          echo "║  CHARACTER SYSTEM:                                           ║"
-          echo "║    ✅  FBXCharacterNode  – full PUBG-style humanoid soldier  ║"
-          echo "║    ✅  16-bone skeleton  – Pelvis→Spine→Chest→Neck→Head     ║"
-          echo "║    ✅  Upper/Fore Arms, Thigh/Shin/Foot, Weapon Socket      ║"
-          echo "║    ✅  AKM assault rifle with scope, mag, muzzle device     ║"
-          echo "║    ✅  Tactical vest, helmet, knee pads, boots              ║"
-          echo "║    ✅  Walk / Run / Idle / Shoot procedural animation       ║"
-          echo "║    ✅  Breathing idle, spine sway, head bob                 ║"
-          echo "║    ✅  FBX/USDZ external model loader (auto fallback)       ║"
-          echo "╠══════════════════════════════════════════════════════════════╣"
-          echo "║  ENEMIES  (6 types):                                         ║"
-          echo "║    ✅  Walker / Brute / Runner / Cultist / Sniper / Boss    ║"
-          echo "║    ✅  Each uses FBXCharacterNode with faction tinting      ║"
-          echo "║    ✅  Floating HP bars with colour-coded health             ║"
-          echo "╠══════════════════════════════════════════════════════════════╣"
-          echo "║  AUDIO  (12 DSP-generated sounds):                           ║"
-          echo "║    ✅  AK-47 gunshot  /  Empty click  /  Reload             ║"
-          echo "║    ✅  Footstep  /  Hurt  /  Enemy death                   ║"
-          echo "║    ✅  Ammo pickup  /  Wave clear fanfare                  ║"
-          echo "║    ✅  Boss roar  /  UI click  /  Ambient wind loop        ║"
-          echo "║    ✅  Bullet impact  –  AVAudioEngine positional audio     ║"
-          echo "╠══════════════════════════════════════════════════════════════╣"
-          echo "║  VISUALS:                                                    ║"
-          echo "║    ✅  PBR textures (ground, concrete, grass, metal)        ║"
-          echo "║    ✅  Muzzle flash / blood splat / dust SceneKit particles ║"
-          echo "║    ✅  PUBG-style HUD – HP bar, ammo, kill feed, reload bar ║"
-          echo "║    ✅  Tactical crosshair / kill feed pop-ups               ║"
-          echo "║    ✅  Debris props – crates, barrels, sandbags             ║"
-          echo "║    ✅  Multi-layer tree canopy / flickering torches         ║"
-          echo "╠══════════════════════════════════════════════════════════════╣"
-          echo "║  SIDELOAD:  Download IPA → AltStore / Sideloadly / TrollStore║"
-          echo "╚══════════════════════════════════════════════════════════════╝"
