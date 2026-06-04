@@ -7,15 +7,11 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    # Upgraded to macos-15 to natively provide the Xcode 16+ toolchain
+    runs-on: macos-15
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Select Stable Xcode Version
-        run: |
-          # Ensures the command line tools point to a modern, fully compatible Xcode installation
-          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -33,7 +29,6 @@ jobs:
             bundleIdPrefix: com.premium.architecture
             deploymentTarget:
               iOS: "15.0"
-            objectVersion: 56
           targets:
             AAAGame:
               type: application
